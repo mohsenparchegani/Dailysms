@@ -6,11 +6,9 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
-import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.RippleDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -30,21 +28,20 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import java.util.Calendar
 
 /**
- * برنامه ارسال خودکار پیامک بر اساس تاریخ نام مخاطب
- * طراحی مدرن، پشتیبانی از دو سیم‌کارت و تاریخ ثابت
+ * برنامه ارسال پیامک روزانه املاک یلدا
+ * - نمایش خودکار متن روز در کادر با قابلیت ویرایش آزاد
+ * - تقسیم خودکار پیامک‌ها بین سیم‌کارت ۱ و ۲ جهت جلوگیری از مسدودی خط
+ * - نمایش تاریخ ثابت شمسی امروز (روز و ماه)
  */
 class MainActivity : Activity() {
 
     data class Contact(val name: String, val phone: String, val md: Int)
-    data class SimOption(val label: String, val subId: Int)
 
     private val ui = Handler(Looper.getMainLooper())
     private lateinit var prefs: SharedPreferences
@@ -61,14 +58,13 @@ class MainActivity : Activity() {
     private lateinit var totalCountBadge: TextView
     private lateinit var pendingCountBadge: TextView
     private lateinit var totalContactsReadView: TextView
+    private lateinit var simSummaryText: TextView
     private lateinit var msgEdit: EditText
-    private lateinit var simContainer: LinearLayout
+    private lateinit var charCounterText: TextView
     private lateinit var sendBtn: Button
+    private lateinit var resetMsgBtn: Button
     private lateinit var progressBar: ProgressBar
     private lateinit var statusText: TextView
-
-    private var activeSimOptions: List<SimOption> = emptyList()
-    private var selectedSubId: Int = -1
 
     private val requiredPerms = arrayOf(
         Manifest.permission.READ_CONTACTS,
@@ -92,32 +88,31 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("dailysms", Context.MODE_PRIVATE)
-        selectedSubId = prefs.getInt("selected_sub_id", -1)
 
         val scroll = ScrollView(this).apply {
-            setBackgroundColor(Color.parseColor("#F8FAFC")) // تم مدرن لایت متمایل به اسلیت
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
             isFillViewport = true
         }
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_RTL
-            setPadding(dp(16), dp(20), dp(16), dp(32))
+            setPadding(dp(16), dp(18), dp(16), dp(28))
         }
 
-        // --- ۱. کارت سربرگ و تاریخ امروز ---
+        // --- ۱. هدر شکیل برنامه ---
         val headerCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.parseColor("#3B82F6"), Color.parseColor("#1D4ED8"))
-            ).apply { cornerRadius = dp(18).toFloat() }
-            setPadding(dp(18), dp(18), dp(18), dp(18))
-            elevation = dp(4).toFloat()
+                intArrayOf(Color.parseColor("#2563EB"), Color.parseColor("#1E40AF"))
+            ).apply { cornerRadius = dp(16).toFloat() }
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            elevation = dp(3).toFloat()
         }
 
         val appTitle = TextView(this).apply {
-            text = "✨ پیامک هوشمند مشتریان"
+            text = "✨ پیامک هوشمند املاک یلدا"
             textSize = 20f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.WHITE)
@@ -125,33 +120,33 @@ class MainActivity : Activity() {
         headerCard.addView(appTitle)
 
         todayBadgeText = TextView(this).apply {
-            textSize = 15f
+            textSize = 14f
             setTextColor(Color.parseColor("#DBEAFE"))
             setPadding(0, dp(4), 0, 0)
         }
         headerCard.addView(todayBadgeText)
         root.addView(headerCard)
 
-        // --- ۲. کارت تنظیم تاریخ هدف (غیرقابل تغییر و مطابق درخواست کاربر) ---
+        // --- ۲. کارت تاریخ ارسال امروز (غیرقابل تغییر، ترتیب روز و ماه) ---
         val dateCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = roundRect(Color.WHITE, 16, 1, Color.parseColor("#E2E8F0"))
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = roundRect(Color.WHITE, 14, 1, Color.parseColor("#E2E8F0"))
+            setPadding(dp(16), dp(12), dp(16), dp(12))
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            lp.topMargin = dp(14)
+            lp.topMargin = dp(12)
             layoutParams = lp
         }
 
-        val dateHeaderLabel = TextView(this).apply {
+        val dateLabel = TextView(this).apply {
             text = "📅 تاریخ ارسال امروز"
             textSize = 13f
             setTextColor(Color.parseColor("#64748B"))
             setTypeface(null, Typeface.BOLD)
         }
-        dateCard.addView(dateHeaderLabel)
+        dateCard.addView(dateLabel)
 
         targetDateView = TextView(this).apply {
-            textSize = 17f
+            textSize = 16f
             setTextColor(Color.parseColor("#0F172A"))
             setTypeface(null, Typeface.BOLD)
             setPadding(0, dp(4), 0, 0)
@@ -159,11 +154,11 @@ class MainActivity : Activity() {
         dateCard.addView(targetDateView)
         root.addView(dateCard)
 
-        // --- ۳. کارت آمار (کل مخاطبین امروز و مانده) ---
+        // --- ۳. کارت آمار مخاطبین ---
         val statsRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            lp.topMargin = dp(12)
+            lp.topMargin = dp(10)
             layoutParams = lp
         }
 
@@ -172,11 +167,12 @@ class MainActivity : Activity() {
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor("#1E40AF"))
             background = roundRect(Color.parseColor("#EFF6FF"), 12, 1, Color.parseColor("#BFDBFE"))
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setPadding(dp(10), dp(10), dp(10), dp(10))
             gravity = Gravity.CENTER
             val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            lp.marginEnd = dp(6)
+            lp.marginEnd = dp(5)
             layoutParams = lp
+            text = "مخاطبین امروز: ۰ نفر"
         }
         statsRow.addView(totalCountBadge)
 
@@ -185,92 +181,138 @@ class MainActivity : Activity() {
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor("#065F46"))
             background = roundRect(Color.parseColor("#ECFDF5"), 12, 1, Color.parseColor("#A7F3D0"))
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setPadding(dp(10), dp(10), dp(10), dp(10))
             gravity = Gravity.CENTER
             val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            lp.marginStart = dp(6)
+            lp.marginStart = dp(5)
             layoutParams = lp
+            text = "مانده برای ارسال: ۰ نفر"
         }
         statsRow.addView(pendingCountBadge)
         root.addView(statsRow)
 
-        // --- ۴. انتخاب سیم‌کارت (مدرن با دکمه‌های شکیل) ---
-        val simSectionCard = LinearLayout(this).apply {
+        // --- ۴. کارت وضعیت سیم‌کارت‌ها و تقسیم خودکار ---
+        val simCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = roundRect(Color.WHITE, 16, 1, Color.parseColor("#E2E8F0"))
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = roundRect(Color.WHITE, 14, 1, Color.parseColor("#E2E8F0"))
+            setPadding(dp(16), dp(12), dp(16), dp(12))
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            lp.topMargin = dp(14)
+            lp.topMargin = dp(12)
             layoutParams = lp
         }
 
         val simHeader = TextView(this).apply {
-            text = "📶 انتخاب سیم‌کارت ارسال"
-            textSize = 14f
+            text = "📶 تقسیم خودکار پیامک‌ها بین سیم‌کارت‌ها (ضد مسدودی)"
+            textSize = 13f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#334155"))
+            setTextColor(Color.parseColor("#1E293B"))
         }
-        simSectionCard.addView(simHeader)
+        simCard.addView(simHeader)
 
-        simContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(8), 0, 0)
+        simSummaryText = TextView(this).apply {
+            textSize = 13f
+            setTextColor(Color.parseColor("#475569"))
+            setPadding(0, dp(6), 0, 0)
+            text = "در حال بررسی سیم‌کارت‌های فعال..."
         }
-        simSectionCard.addView(simContainer)
-        root.addView(simSectionCard)
+        simCard.addView(simSummaryText)
+        root.addView(simCard)
 
-        // --- ۵. متن پیامک تبلیغاتی ---
+        // --- ۵. کادر متن پیامک (نمایش متن روز + قابلیت ویرایش) ---
         val msgCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = roundRect(Color.WHITE, 16, 1, Color.parseColor("#E2E8F0"))
+            background = roundRect(Color.WHITE, 14, 1, Color.parseColor("#E2E8F0"))
             setPadding(dp(16), dp(14), dp(16), dp(14))
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            lp.topMargin = dp(14)
+            lp.topMargin = dp(12)
+            layoutParams = lp
+        }
+
+        val msgHeaderRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             layoutParams = lp
         }
 
         val msgLabel = TextView(this).apply {
-            text = "✉️ متن پیامک"
+            text = "✉️ متن پیامک امروز (قابل ویرایش):"
             textSize = 14f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#334155"))
+            setTextColor(Color.parseColor("#1E293B"))
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = lp
         }
-        msgCard.addView(msgLabel)
+        msgHeaderRow.addView(msgLabel)
+
+        resetMsgBtn = Button(this).apply {
+            text = "🔄 بازنشانی متن روز"
+            textSize = 11f
+            setTextColor(Color.parseColor("#2563EB"))
+            background = roundRect(Color.parseColor("#EFF6FF"), 8, 1, Color.parseColor("#BFDBFE"))
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            setOnClickListener {
+                val dayMsg = DailySmsBank.getMessage(currentMonth, currentDay)
+                msgEdit.setText(dayMsg)
+                prefs.edit().putString("custom_msg_$todayKey", dayMsg).apply()
+                Toast.makeText(this@MainActivity, "متن آماده امروز بارگذاری شد", Toast.LENGTH_SHORT).show()
+            }
+        }
+        msgHeaderRow.addView(resetMsgBtn)
+        msgCard.addView(msgHeaderRow)
 
         msgEdit = EditText(this).apply {
             minLines = 4
             gravity = Gravity.TOP or Gravity.START
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            background = roundRect(Color.parseColor("#F8FAFC"), 12, 1, Color.parseColor("#CBD5E1"))
+            background = roundRect(Color.parseColor("#F8FAFC"), 10, 1, Color.parseColor("#CBD5E1"))
             setPadding(dp(12), dp(12), dp(12), dp(12))
-            hint = "متن پیامک ارسالی را اینجا بنویسید..."
+            hint = "متن پیامک امروز..."
             textSize = 15f
             setTextColor(Color.parseColor("#0F172A"))
-            setText(prefs.getString("msg", ""))
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             lp.topMargin = dp(8)
             layoutParams = lp
         }
+
+        charCounterText = TextView(this).apply {
+            textSize = 12f
+            setTextColor(Color.parseColor("#64748B"))
+            gravity = Gravity.START
+            setPadding(0, dp(4), 0, 0)
+            text = "تعداد کاراکتر: ۰ / ۷۰ (۱ پیامک)"
+        }
+
         msgEdit.addTextChangedListener(object : TextWatcher {
             override fun afterTextChanged(s: Editable?) {
-                prefs.edit().putString("msg", s?.toString() ?: "").apply()
+                val str = s?.toString() ?: ""
+                prefs.edit().putString("custom_msg_$todayKey", str).apply()
+                val len = str.length
+                val parts = if (len <= 70) 1 else ((len - 70 + 66) / 67 + 1)
+                charCounterText.text = "تعداد کاراکتر: $len / ۷۰  ($parts پیامک فارسی)"
+                if (len > 70) {
+                    charCounterText.setTextColor(Color.parseColor("#D97706"))
+                } else {
+                    charCounterText.setTextColor(Color.parseColor("#64748B"))
+                }
             }
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
         })
+
         msgCard.addView(msgEdit)
+        msgCard.addView(charCounterText)
         root.addView(msgCard)
 
-        // دکمه ارسال پیامک
+        // --- ۶. دکمه ارسال پیامک ---
         sendBtn = Button(this).apply {
-            text = "🚀 ارسال پیامک امروز"
-            textSize = 17f
+            text = "🚀 ارسال هوشمند پیامک‌های امروز"
+            textSize = 16f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.WHITE)
-            background = roundRect(Color.parseColor("#2563EB"), 16)
+            background = roundRect(Color.parseColor("#2563EB"), 14)
             elevation = dp(3).toFloat()
             setOnClickListener { onSendClicked() }
-            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54))
             lp.topMargin = dp(16)
             layoutParams = lp
         }
@@ -294,7 +336,7 @@ class MainActivity : Activity() {
         root.addView(statusText)
 
         totalContactsReadView = TextView(this).apply {
-            textSize = 13f
+            textSize = 12f
             setTextColor(Color.parseColor("#94A3B8"))
             gravity = Gravity.CENTER
             setPadding(0, dp(4), 0, 0)
@@ -310,7 +352,7 @@ class MainActivity : Activity() {
         updateToday()
         if (hasPerms()) {
             loadContacts()
-            updateSimSelectionUi()
+            updateSimInfo()
         } else {
             requestPermissions(requiredPerms, 1)
         }
@@ -320,9 +362,9 @@ class MainActivity : Activity() {
         super.onRequestPermissionsResult(code, perms, res)
         if (hasPerms()) {
             loadContacts()
-            updateSimSelectionUi()
+            updateSimInfo()
         } else {
-            statusText.text = "⚠️ لطفاً برای کارکرد صحیح، دسترسی به مخاطبین، پیامک و تلفن را تأیید کنید."
+            statusText.text = "⚠️ برای عملکرد صحیح برنامه، لطفاً دسترسی‌های پیامک، مخاطبین و تلفن را تأیید نمایید."
         }
     }
 
@@ -340,8 +382,15 @@ class MainActivity : Activity() {
         todayKey = "${j[0]}/${j[1]}/${j[2]}"
         todayBadgeText.text = "امروز: ${j[0]}/${j[1]}/${j[2]}"
 
-        // طبق خواسته کاربر: ترتیب روز و ماه، و کاملاً غیرقابل تغییر
+        // نمایش دقیق تاریخ طبق فرمت درخواستی (غیرقابل تغییر)
         targetDateView.text = "ارسال به مخاطبین روز ${j[2]} ماه ${j[1]} (همه سال‌ها)"
+
+        // بارگذاری خودکار متن روز در کادر (با قابلیت ویرایش)
+        val savedForToday = prefs.getString("custom_msg_$todayKey", null)
+        val textToSet = savedForToday ?: DailySmsBank.getMessage(currentMonth, currentDay)
+        if (msgEdit.text.toString() != textToSet) {
+            msgEdit.setText(textToSet)
+        }
 
         val old = prefs.getStringSet("sent", emptySet()) ?: emptySet()
         val keep = old.filter { it.startsWith("$todayKey|") }.toSet()
@@ -373,10 +422,10 @@ class MainActivity : Activity() {
         return intArrayOf(jy, jm, jd)
     }
 
-    // ---------------------------------------------------------------- سیم‌کارت
+    // ---------------------------------------------------------------- سیم‌کارت و تقسیم خودکار
 
-    private fun getSimOptions(): List<SimOption> {
-        val list = ArrayList<SimOption>()
+    private fun getActiveSubscriptionIds(): List<Int> {
+        val list = ArrayList<Int>()
         if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) {
             val sm = getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
             if (sm != null) {
@@ -384,90 +433,51 @@ class MainActivity : Activity() {
                     val subs = sm.activeSubscriptionInfoList
                     if (!subs.isNullOrEmpty()) {
                         for (sub in subs) {
-                            val slot = sub.simSlotIndex
-                            val carrier = sub.displayName?.toString()?.trim() ?: ""
-                            val carrierName = sub.carrierName?.toString()?.trim() ?: ""
-                            val name = if (carrier.isNotEmpty()) carrier else carrierName
-                            val label = "سیم‌کارت ${slot + 1}" + if (name.isNotEmpty() && name != "SIM ${slot + 1}") " ($name)" else ""
-                            list.add(SimOption(label, sub.subscriptionId))
+                            list.add(sub.subscriptionId)
                         }
                     }
                 } catch (_: Exception) {}
             }
         }
-        if (list.isEmpty()) {
-            list.add(SimOption("سیم‌کارت ۱", -1))
-            list.add(SimOption("سیم‌کارت ۲", -2))
-        } else {
-            list.add(SimOption("پیش‌فرض سیستم", -1))
-        }
         return list
     }
 
-    private fun updateSimSelectionUi() {
-        if (!::simContainer.isInitialized) return
-        simContainer.removeAllViews()
-        activeSimOptions = getSimOptions()
-        selectedSubId = prefs.getInt("selected_sub_id", -1)
+    private fun updateSimInfo() {
+        if (!::simSummaryText.isInitialized) return
+        if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+            simSummaryText.text = "جهت تقسیم پیامک‌ها دسترسی تلفن لازم است."
+            return
+        }
+        val sm = getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
+        val subs = sm?.activeSubscriptionInfoList
+        if (subs.isNullOrEmpty()) {
+            simSummaryText.text = "سیم‌کارت فعال شناسایی نشد (ارسال با سیم‌کارت پیش‌فرض سیستم)."
+            return
+        }
+        if (subs.size == 1) {
+            val sub = subs[0]
+            val carrier = sub.displayName?.toString()?.trim() ?: sub.carrierName?.toString()?.trim() ?: "سیم‌کارت ۱"
+            simSummaryText.text = "تنها یک سیم‌کارت فعال ($carrier) شناسایی شد. همه پیامک‌ها از همین سیم ارسال می‌شوند."
+            return
+        }
 
-        var hasMatch = false
-        for (opt in activeSimOptions) {
-            if (opt.subId == selectedSubId) hasMatch = true
-        }
-        if (!hasMatch && activeSimOptions.isNotEmpty()) {
-            selectedSubId = activeSimOptions[0].subId
-            prefs.edit().putInt("selected_sub_id", selectedSubId).apply()
-        }
+        val names = subs.mapIndexed { idx, s ->
+            val c = s.displayName?.toString()?.trim() ?: s.carrierName?.toString()?.trim() ?: "سیم ${idx + 1}"
+            "سیم ${idx + 1}: $c"
+        }.joinToString("  |  ")
 
-        for (opt in activeSimOptions) {
-            val isSelected = (opt.subId == selectedSubId)
-            val btn = TextView(this).apply {
-                text = (if (isSelected) "🔘 " else "⚪ ") + opt.label
-                textSize = 15f
-                setTypeface(null, if (isSelected) Typeface.BOLD else Typeface.NORMAL)
-                setTextColor(if (isSelected) Color.parseColor("#1D4ED8") else Color.parseColor("#475569"))
-                background = if (isSelected) {
-                    roundRect(Color.parseColor("#EFF6FF"), 12, 1, Color.parseColor("#3B82F6"))
-                } else {
-                    roundRect(Color.parseColor("#F8FAFC"), 12, 1, Color.parseColor("#E2E8F0"))
-                }
-                setPadding(dp(14), dp(10), dp(14), dp(10))
-                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                lp.bottomMargin = dp(8)
-                layoutParams = lp
-                setOnClickListener {
-                    selectedSubId = opt.subId
-                    prefs.edit().putInt("selected_sub_id", selectedSubId).apply()
-                    updateSimSelectionUi()
-                }
-            }
-            simContainer.addView(btn)
-        }
+        simSummaryText.text = "✅ شناسایی شد: $names\n🔄 پیامک‌ها به صورت خودکار و مساوی (۵۰/۵۰) بین دو سیم‌کارت تقسیم و ارسال می‌شوند تا خط مسدود نشود."
     }
 
-    private fun resolveSubId(targetSubId: Int): Int {
-        if (targetSubId > 0) return targetSubId
-        if (targetSubId == -2) {
-            if (Build.VERSION.SDK_INT >= 29) {
-                try {
-                    val id = SubscriptionManager.getSubscriptionId(1)
-                    if (id != SubscriptionManager.INVALID_SUBSCRIPTION_ID) return id
-                } catch (_: Exception) {}
-            }
-        }
-        return -1
-    }
-
-    private fun getSmsManager(subId: Int): SmsManager {
-        val finalSubId = resolveSubId(subId)
+    private fun getSmsManagerForSub(subId: Int): SmsManager {
         return if (Build.VERSION.SDK_INT >= 31) {
             val base = getSystemService(SmsManager::class.java)
                 ?: @Suppress("DEPRECATION") SmsManager.getDefault()
-            if (finalSubId > 0) base.createForSubscriptionId(finalSubId) else base
+            if (subId > 0) base.createForSubscriptionId(subId) else base
         } else {
-            if (finalSubId > 0) {
+            if (subId > 0) {
                 @Suppress("DEPRECATION")
-                SmsManager.getSmsManagerForSubscriptionId(finalSubId)
+                SmsManager.getSmsManagerForSubscriptionId(subId)
             } else {
                 @Suppress("DEPRECATION")
                 SmsManager.getDefault()
@@ -535,16 +545,14 @@ class MainActivity : Activity() {
             }
             ui.post {
                 contacts = list
-                totalContactsReadView.text = "${list.size} مخاطب دارای تاریخ ثبت شده در سیستم"
+                totalContactsReadView.text = "${list.size} مخاطب دارای تاریخ در دفترچه تلفن یافت شد"
                 statusText.text = "آماده برای ارسال پیامک"
                 refresh()
             }
         }.start()
     }
 
-    private fun targetMd(): Int {
-        return currentMonth * 100 + currentDay
-    }
+    private fun targetMd(): Int = currentMonth * 100 + currentDay
 
     private fun sentSet(): Set<String> = prefs.getStringSet("sent", emptySet()) ?: emptySet()
 
@@ -568,7 +576,7 @@ class MainActivity : Activity() {
         pendingCountBadge.text = "مانده برای ارسال: $left نفر"
     }
 
-    // ---------------------------------------------------------------- ارسال
+    // ---------------------------------------------------------------- ارسال خودکار
 
     private fun onSendClicked() {
         if (sending) return
@@ -588,44 +596,41 @@ class MainActivity : Activity() {
             return
         }
 
-        val simOptions = getSimOptions()
-        var selectedIndex = simOptions.indexOfFirst { it.subId == selectedSubId }
-        if (selectedIndex < 0) selectedIndex = 0
-
-        val labels = simOptions.map { it.label }.toTypedArray()
-        var chosenSubId = simOptions[selectedIndex].subId
+        val subs = getActiveSubscriptionIds()
+        val simDesc = if (subs.size >= 2) {
+            "پیامک‌ها به صورت خودکار ۵۰/۵۰ بین دو سیم‌کارت تقسیم می‌شوند تا از مسدود شدن سیم‌کارت جلوگیری شود."
+        } else {
+            "پیامک‌ها از سیم‌کارت فعال ارسال خواهند شد."
+        }
 
         AlertDialog.Builder(this)
-            .setTitle("ارسال برای ${list.size} نفر")
-            .setSingleChoiceItems(labels, selectedIndex) { _, which ->
-                chosenSubId = simOptions[which].subId
-            }
-            .setPositiveButton("تأیید و ارسال") { _, _ ->
-                selectedSubId = chosenSubId
-                prefs.edit().putInt("selected_sub_id", chosenSubId).apply()
-                updateSimSelectionUi()
-                startSending(list, text, chosenSubId)
+            .setTitle("ارسال برای ${list.size} مخاطب")
+            .setMessage("متن ارسالی:\n$text\n\n$simDesc\n\nآیا ارسال شروع شود؟")
+            .setPositiveButton("شروع ارسال") { _, _ ->
+                startSending(list, text, subs)
             }
             .setNegativeButton("انصراف", null)
             .show()
     }
 
-    private fun startSending(list: List<String>, text: String, subId: Int) {
+    private fun startSending(list: List<String>, text: String, subs: List<Int>) {
         sending = true
         sendBtn.isEnabled = false
         sendBtn.alpha = 0.5f
+        resetMsgBtn.isEnabled = false
         progressBar.visibility = View.VISIBLE
         progressBar.max = list.size
         progressBar.progress = 0
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        sendNext(list, text, subId, 0, 0)
+        sendNext(list, text, subs, 0, 0)
     }
 
-    private fun sendNext(list: List<String>, text: String, subId: Int, i: Int, failed: Int) {
+    private fun sendNext(list: List<String>, text: String, subs: List<Int>, i: Int, failed: Int) {
         if (i >= list.size) {
             sending = false
             sendBtn.isEnabled = true
             sendBtn.alpha = 1.0f
+            resetMsgBtn.isEnabled = true
             progressBar.visibility = View.GONE
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             statusText.text = "🎉 ارسال کامل شد: ${list.size - failed} موفق، $failed ناموفق."
@@ -634,8 +639,13 @@ class MainActivity : Activity() {
         }
         var f = failed
         val phone = list[i]
+
+        // تقسیم خودکار متوازن بین سیم‌کارت‌ها (نوبتی - round-robin)
+        val chosenSubId = if (subs.isNotEmpty()) subs[i % subs.size] else -1
+        val simSlotNum = if (subs.isNotEmpty()) (i % subs.size) + 1 else 1
+
         try {
-            val sms = getSmsManager(subId)
+            val sms = getSmsManagerForSub(chosenSubId)
             val parts = sms.divideMessage(text)
             sms.sendMultipartTextMessage(phone, null, parts, null, null)
             val set = HashSet(sentSet())
@@ -644,9 +654,12 @@ class MainActivity : Activity() {
         } catch (e: Exception) {
             f++
         }
+
         progressBar.progress = i + 1
-        statusText.text = "در حال ارسال ${i + 1} از ${list.size} ... (صفحه را نبندید)"
+        statusText.text = "در حال ارسال ${i + 1} از ${list.size} (از سیم‌کارت $simSlotNum) ... لطفا صفحه را نبندید"
         refresh()
-        ui.postDelayed({ sendNext(list, text, subId, i + 1, f) }, 3000)
+
+        // تاخیر ۳.۵ ثانیه بین پیامک‌ها برای جلوگیری از اسپم اپراتور
+        ui.postDelayed({ sendNext(list, text, subs, i + 1, f) }, 3500)
     }
 }
