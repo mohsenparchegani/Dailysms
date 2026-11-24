@@ -6,7 +6,11 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -15,33 +19,32 @@ import android.provider.ContactsContract
 import android.telephony.SmsManager
 import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import java.util.Calendar
 
 /**
- * منطق برنامه:
- * - نام مخاطبین در گوشی با تاریخ شمسی شروع می‌شود، مثل: 14050819 مستاجر سفری
- * - هر روز با زدن دکمه، به همه مخاطبینی که «ماه و روز» تاریخشان برابر «امروز» است
- *   (در هر سالی: 1405، 1404، 1403 و ...) پیامک تبلیغاتی ارسال می‌شود.
+ * برنامه ارسال خودکار پیامک بر اساس تاریخ نام مخاطب
+ * طراحی مدرن، پشتیبانی از دو سیم‌کارت و تاریخ ثابت
  */
 class MainActivity : Activity() {
 
-    data class Contact
+    data class Contact(val name: String, val phone: String, val md: Int)
     data class SimOption(val label: String, val subId: Int)
-(val name: String, val phone: String, val md: Int) // md = ماه*100 + روز
 
     private val ui = Handler(Looper.getMainLooper())
     private lateinit var prefs: SharedPreferences
@@ -49,18 +52,23 @@ class MainActivity : Activity() {
     private var contacts: List<Contact> = emptyList()
     private var sending = false
     private var todayKey = ""
-    private var initializedForKey = ""
+    private var currentMonth = 0
+    private var currentDay = 0
 
-    private lateinit var todayText: TextView
-    private lateinit var monthEdit: EditText
-    private lateinit var dayEdit: EditText
-    private lateinit var infoText: TextView
+    // ویجت‌ها
+    private lateinit var todayBadgeText: TextView
+    private lateinit var targetDateView: TextView
+    private lateinit var totalCountBadge: TextView
+    private lateinit var pendingCountBadge: TextView
+    private lateinit var totalContactsReadView: TextView
     private lateinit var msgEdit: EditText
-    private lateinit var simRadioGroup: RadioGroup
+    private lateinit var simContainer: LinearLayout
     private lateinit var sendBtn: Button
+    private lateinit var progressBar: ProgressBar
     private lateinit var statusText: TextView
 
-    // ---------------------------------------------------------------- UI
+    private var activeSimOptions: List<SimOption> = emptyList()
+    private var selectedSubId: Int = -1
 
     private val requiredPerms = arrayOf(
         Manifest.permission.READ_CONTACTS,
@@ -70,52 +78,178 @@ class MainActivity : Activity() {
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
+    private fun roundRect(bgColor: Int, radiusDp: Int, strokeWidthDp: Int = 0, strokeColor: Int = 0): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(radiusDp).toFloat()
+            setColor(bgColor)
+            if (strokeWidthDp > 0) {
+                setStroke(dp(strokeWidthDp), strokeColor)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("dailysms", Context.MODE_PRIVATE)
+        selectedSubId = prefs.getInt("selected_sub_id", -1)
+
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(Color.parseColor("#F8FAFC")) // تم مدرن لایت متمایل به اسلیت
+            isFillViewport = true
+        }
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_RTL
-            setPadding(dp(16), dp(24), dp(16), dp(16))
+            setPadding(dp(16), dp(20), dp(16), dp(32))
         }
 
-        todayText = TextView(this).apply { textSize = 16f; setTextColor(Color.DKGRAY) }
-        root.addView(todayText)
+        // --- ۱. کارت سربرگ و تاریخ امروز ---
+        val headerCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.parseColor("#3B82F6"), Color.parseColor("#1D4ED8"))
+            ).apply { cornerRadius = dp(18).toFloat() }
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            elevation = dp(4).toFloat()
+        }
 
-        val dateRow = LinearLayout(this).apply {
+        val appTitle = TextView(this).apply {
+            text = "✨ پیامک هوشمند مشتریان"
+            textSize = 20f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        }
+        headerCard.addView(appTitle)
+
+        todayBadgeText = TextView(this).apply {
+            textSize = 15f
+            setTextColor(Color.parseColor("#DBEAFE"))
+            setPadding(0, dp(4), 0, 0)
+        }
+        headerCard.addView(todayBadgeText)
+        root.addView(headerCard)
+
+        // --- ۲. کارت تنظیم تاریخ هدف (غیرقابل تغییر و مطابق درخواست کاربر) ---
+        val dateCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = roundRect(Color.WHITE, 16, 1, Color.parseColor("#E2E8F0"))
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = dp(14)
+            layoutParams = lp
+        }
+
+        val dateHeaderLabel = TextView(this).apply {
+            text = "📅 تاریخ ارسال امروز"
+            textSize = 13f
+            setTextColor(Color.parseColor("#64748B"))
+            setTypeface(null, Typeface.BOLD)
+        }
+        dateCard.addView(dateHeaderLabel)
+
+        targetDateView = TextView(this).apply {
+            textSize = 17f
+            setTextColor(Color.parseColor("#0F172A"))
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, dp(4), 0, 0)
+        }
+        dateCard.addView(targetDateView)
+        root.addView(dateCard)
+
+        // --- ۳. کارت آمار (کل مخاطبین امروز و مانده) ---
+        val statsRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = dp(12)
+            layoutParams = lp
         }
-        dateRow.addView(TextView(this).apply { text = "ارسال به مخاطبین ماه "; textSize = 16f })
-        monthEdit = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setEms(2); gravity = Gravity.CENTER
-        }
-        dateRow.addView(monthEdit)
-        dateRow.addView(TextView(this).apply { text = " روز "; textSize = 16f })
-        dayEdit = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setEms(2); gravity = Gravity.CENTER
-        }
-        dateRow.addView(dayEdit)
-        dateRow.addView(TextView(this).apply { text = " (همه سال‌ها)"; textSize = 16f })
-        root.addView(dateRow)
 
-        infoText = TextView(this).apply {
-            textSize = 18f
-            setTextColor(Color.parseColor("#0B5394"))
-            setPadding(0, dp(12), 0, dp(12))
+        totalCountBadge = TextView(this).apply {
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1E40AF"))
+            background = roundRect(Color.parseColor("#EFF6FF"), 12, 1, Color.parseColor("#BFDBFE"))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            gravity = Gravity.CENTER
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            lp.marginEnd = dp(6)
+            layoutParams = lp
         }
-        root.addView(infoText)
+        statsRow.addView(totalCountBadge)
 
-        root.addView(TextView(this).apply { text = "متن پیامک تبلیغاتی:"; textSize = 16f })
+        pendingCountBadge = TextView(this).apply {
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#065F46"))
+            background = roundRect(Color.parseColor("#ECFDF5"), 12, 1, Color.parseColor("#A7F3D0"))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            gravity = Gravity.CENTER
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            lp.marginStart = dp(6)
+            layoutParams = lp
+        }
+        statsRow.addView(pendingCountBadge)
+        root.addView(statsRow)
+
+        // --- ۴. انتخاب سیم‌کارت (مدرن با دکمه‌های شکیل) ---
+        val simSectionCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = roundRect(Color.WHITE, 16, 1, Color.parseColor("#E2E8F0"))
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = dp(14)
+            layoutParams = lp
+        }
+
+        val simHeader = TextView(this).apply {
+            text = "📶 انتخاب سیم‌کارت ارسال"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#334155"))
+        }
+        simSectionCard.addView(simHeader)
+
+        simContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(8), 0, 0)
+        }
+        simSectionCard.addView(simContainer)
+        root.addView(simSectionCard)
+
+        // --- ۵. متن پیامک تبلیغاتی ---
+        val msgCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = roundRect(Color.WHITE, 16, 1, Color.parseColor("#E2E8F0"))
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = dp(14)
+            layoutParams = lp
+        }
+
+        val msgLabel = TextView(this).apply {
+            text = "✉️ متن پیامک"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#334155"))
+        }
+        msgCard.addView(msgLabel)
+
         msgEdit = EditText(this).apply {
-            minLines = 5
+            minLines = 4
             gravity = Gravity.TOP or Gravity.START
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            background = roundRect(Color.parseColor("#F8FAFC"), 12, 1, Color.parseColor("#CBD5E1"))
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            hint = "متن پیامک ارسالی را اینجا بنویسید..."
+            textSize = 15f
+            setTextColor(Color.parseColor("#0F172A"))
             setText(prefs.getString("msg", ""))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = dp(8)
+            layoutParams = lp
         }
         msgEdit.addTextChangedListener(object : TextWatcher {
             override fun afterTextChanged(s: Editable?) {
@@ -124,46 +258,51 @@ class MainActivity : Activity() {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
         })
-        root.addView(msgEdit)
+        msgCard.addView(msgEdit)
+        root.addView(msgCard)
 
-        root.addView(TextView(this).apply {
-            text = "انتخاب سیم‌کارت برای ارسال:"
-            textSize = 16f
-            setPadding(0, dp(12), 0, dp(4))
-        })
-
-        simRadioGroup = RadioGroup(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        root.addView(simRadioGroup)
-
+        // دکمه ارسال پیامک
         sendBtn = Button(this).apply {
-            text = "ارسال پیامک امروز"
-            textSize = 20f
+            text = "🚀 ارسال پیامک امروز"
+            textSize = 17f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            background = roundRect(Color.parseColor("#2563EB"), 16)
+            elevation = dp(3).toFloat()
             setOnClickListener { onSendClicked() }
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56))
+            lp.topMargin = dp(16)
+            layoutParams = lp
         }
-        root.addView(
-            sendBtn,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(64)
-            ).apply { topMargin = dp(16) }
-        )
+        root.addView(sendBtn)
+
+        progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = false
+            visibility = View.GONE
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8))
+            lp.topMargin = dp(12)
+            layoutParams = lp
+        }
+        root.addView(progressBar)
 
         statusText = TextView(this).apply {
-            textSize = 15f
-            setPadding(0, dp(12), 0, 0)
+            textSize = 14f
+            setTextColor(Color.parseColor("#475569"))
+            gravity = Gravity.CENTER
+            setPadding(0, dp(10), 0, dp(4))
         }
         root.addView(statusText)
 
-        val watcher = object : TextWatcher {
-            override fun afterTextChanged(s: Editable?) { refresh() }
-            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+        totalContactsReadView = TextView(this).apply {
+            textSize = 13f
+            setTextColor(Color.parseColor("#94A3B8"))
+            gravity = Gravity.CENTER
+            setPadding(0, dp(4), 0, 0)
         }
-        monthEdit.addTextChangedListener(watcher)
-        dayEdit.addTextChangedListener(watcher)
+        root.addView(totalContactsReadView)
 
-        setContentView(ScrollView(this).apply { addView(root) })
+        scroll.addView(root)
+        setContentView(scroll)
     }
 
     override fun onResume() {
@@ -183,7 +322,7 @@ class MainActivity : Activity() {
             loadContacts()
             updateSimSelectionUi()
         } else {
-            statusText.text = "برای کار کردن برنامه، لطفاً دسترسی‌ها را تأیید کنید."
+            statusText.text = "⚠️ لطفاً برای کارکرد صحیح، دسترسی به مخاطبین، پیامک و تلفن را تأیید کنید."
         }
     }
 
@@ -193,24 +332,20 @@ class MainActivity : Activity() {
 
     // ---------------------------------------------------------------- تاریخ
 
-    /** تاریخ شمسی امروز؛ پیش‌فرض ماه/روز = امروز */
     private fun updateToday() {
         val now = Calendar.getInstance()
         val j = toJalali(now.get(Calendar.YEAR), now.get(Calendar.MONTH) + 1, now.get(Calendar.DAY_OF_MONTH))
+        currentMonth = j[1]
+        currentDay = j[2]
         todayKey = "${j[0]}/${j[1]}/${j[2]}"
-        todayText.text = "امروز: ${j[0]}/${j[1]}/${j[2]}"
+        todayBadgeText.text = "امروز: ${j[0]}/${j[1]}/${j[2]}"
 
-        // سابقه ارسال روزهای قبل پاک شود
+        // طبق خواسته کاربر: ترتیب روز و ماه، و کاملاً غیرقابل تغییر
+        targetDateView.text = "ارسال به مخاطبین روز ${j[2]} ماه ${j[1]} (همه سال‌ها)"
+
         val old = prefs.getStringSet("sent", emptySet()) ?: emptySet()
         val keep = old.filter { it.startsWith("$todayKey|") }.toSet()
         if (keep.size != old.size) prefs.edit().putStringSet("sent", keep).apply()
-
-        // پیش‌فرض: ماه و روزِ امروز (فقط یک‌بار در هر روز تنظیم می‌شود تا تغییر دستی پاک نشود)
-        if (initializedForKey != todayKey) {
-            monthEdit.setText(j[1].toString())
-            dayEdit.setText(j[2].toString())
-            initializedForKey = todayKey
-        }
     }
 
     private fun toJalali(gy: Int, gm: Int, gd: Int): IntArray {
@@ -270,29 +405,43 @@ class MainActivity : Activity() {
     }
 
     private fun updateSimSelectionUi() {
-        if (!::simRadioGroup.isInitialized) return
-        simRadioGroup.removeAllViews()
-        val options = getSimOptions()
-        val savedSubId = prefs.getInt("selected_sub_id", -1)
-        var hasMatch = false
+        if (!::simContainer.isInitialized) return
+        simContainer.removeAllViews()
+        activeSimOptions = getSimOptions()
+        selectedSubId = prefs.getInt("selected_sub_id", -1)
 
-        for (opt in options) {
-            val rb = RadioButton(this).apply {
-                text = opt.label
-                textSize = 15f
-                isChecked = (opt.subId == savedSubId)
-                setOnCheckedChangeListener { _, isChecked ->
-                    if (isChecked) {
-                        prefs.edit().putInt("selected_sub_id", opt.subId).apply()
-                    }
-                }
-            }
-            if (rb.isChecked) hasMatch = true
-            simRadioGroup.addView(rb)
+        var hasMatch = false
+        for (opt in activeSimOptions) {
+            if (opt.subId == selectedSubId) hasMatch = true
+        }
+        if (!hasMatch && activeSimOptions.isNotEmpty()) {
+            selectedSubId = activeSimOptions[0].subId
+            prefs.edit().putInt("selected_sub_id", selectedSubId).apply()
         }
 
-        if (!hasMatch && simRadioGroup.childCount > 0) {
-            (simRadioGroup.getChildAt(0) as? RadioButton)?.isChecked = true
+        for (opt in activeSimOptions) {
+            val isSelected = (opt.subId == selectedSubId)
+            val btn = TextView(this).apply {
+                text = (if (isSelected) "🔘 " else "⚪ ") + opt.label
+                textSize = 15f
+                setTypeface(null, if (isSelected) Typeface.BOLD else Typeface.NORMAL)
+                setTextColor(if (isSelected) Color.parseColor("#1D4ED8") else Color.parseColor("#475569"))
+                background = if (isSelected) {
+                    roundRect(Color.parseColor("#EFF6FF"), 12, 1, Color.parseColor("#3B82F6"))
+                } else {
+                    roundRect(Color.parseColor("#F8FAFC"), 12, 1, Color.parseColor("#E2E8F0"))
+                }
+                setPadding(dp(14), dp(10), dp(14), dp(10))
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                lp.bottomMargin = dp(8)
+                layoutParams = lp
+                setOnClickListener {
+                    selectedSubId = opt.subId
+                    prefs.edit().putInt("selected_sub_id", selectedSubId).apply()
+                    updateSimSelectionUi()
+                }
+            }
+            simContainer.addView(btn)
         }
     }
 
@@ -332,8 +481,8 @@ class MainActivity : Activity() {
         val sb = StringBuilder()
         for (ch in s) {
             when (ch) {
-                in '\u06F0'..'\u06F9' -> sb.append('0' + (ch - '\u06F0'))
-                in '\u0660'..'\u0669' -> sb.append('0' + (ch - '\u0660'))
+                in '۰'..'۹' -> sb.append('0' + (ch - '۰'))
+                in '٠'..'٩' -> sb.append('0' + (ch - '٠'))
                 else -> sb.append(ch)
             }
         }
@@ -342,7 +491,6 @@ class MainActivity : Activity() {
 
     private val dateRegex = Regex("^\\s*(\\d{4})[/\\-.]?(\\d{2})[/\\-.]?(\\d{2})(?!\\d)")
 
-    /** از ابتدای نام مخاطب، ماه*100+روز را درمی‌آورد (مثلاً 14050819 → 819) */
     private fun parseMd(name: String): Int? {
         val m = dateRegex.find(latinDigits(name)) ?: return null
         val mo = m.groupValues[2].toInt()
@@ -360,7 +508,7 @@ class MainActivity : Activity() {
     }
 
     private fun loadContacts() {
-        statusText.text = "در حال خواندن مخاطبین..."
+        statusText.text = "⏳ در حال خواندن مخاطبین گوشی..."
         Thread {
             val list = ArrayList<Contact>()
             try {
@@ -387,24 +535,21 @@ class MainActivity : Activity() {
             }
             ui.post {
                 contacts = list
-                statusText.text = "${list.size} مخاطب دارای تاریخ خوانده شد."
+                totalContactsReadView.text = "${list.size} مخاطب دارای تاریخ ثبت شده در سیستم"
+                statusText.text = "آماده برای ارسال پیامک"
                 refresh()
             }
         }.start()
     }
 
-    private fun targetMd(): Int? {
-        val mo = latinDigits(monthEdit.text.toString()).toIntOrNull() ?: return null
-        val da = latinDigits(dayEdit.text.toString()).toIntOrNull() ?: return null
-        if (mo !in 1..12 || da !in 1..31) return null
-        return mo * 100 + da
+    private fun targetMd(): Int {
+        return currentMonth * 100 + currentDay
     }
 
     private fun sentSet(): Set<String> = prefs.getStringSet("sent", emptySet()) ?: emptySet()
 
-    /** شماره‌های یکتا که امروز باید پیامک بگیرند و هنوز نگرفته‌اند */
     private fun pending(): List<String> {
-        val md = targetMd() ?: return emptyList()
+        val md = targetMd()
         val sent = sentSet()
         return contacts.asSequence()
             .filter { it.md == md }
@@ -415,15 +560,12 @@ class MainActivity : Activity() {
     }
 
     private fun refresh() {
-        if (!::infoText.isInitialized) return
+        if (!::totalCountBadge.isInitialized) return
         val md = targetMd()
-        if (md == null) {
-            infoText.text = "ماه (۱ تا ۱۲) و روز (۱ تا ۳۱) را درست وارد کنید."
-            return
-        }
         val total = contacts.filter { it.md == md }.map { it.phone }.distinct().size
         val left = pending().size
-        infoText.text = "مخاطبین این تاریخ: $total نفر\nمانده برای ارسال امروز: $left نفر"
+        totalCountBadge.text = "مخاطبین امروز: $total نفر"
+        pendingCountBadge.text = "مانده برای ارسال: $left نفر"
     }
 
     // ---------------------------------------------------------------- ارسال
@@ -437,40 +579,44 @@ class MainActivity : Activity() {
         }
         val text = msgEdit.text.toString().trim()
         if (text.isEmpty()) {
-            Toast.makeText(this, "متن پیامک را بنویسید", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "لطفاً ابتدا متن پیامک را وارد کنید", Toast.LENGTH_LONG).show()
             return
         }
         val list = pending()
         if (list.isEmpty()) {
-            Toast.makeText(this, "کسی برای ارسال نمانده", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "برای تاریخ امروز هیچ مخاطب ارسال نشده‌ای وجود ندارد", Toast.LENGTH_LONG).show()
             return
         }
 
         val simOptions = getSimOptions()
-        val savedSubId = prefs.getInt("selected_sub_id", -1)
-        var selectedIndex = simOptions.indexOfFirst { it.subId == savedSubId }
+        var selectedIndex = simOptions.indexOfFirst { it.subId == selectedSubId }
         if (selectedIndex < 0) selectedIndex = 0
 
         val labels = simOptions.map { it.label }.toTypedArray()
         var chosenSubId = simOptions[selectedIndex].subId
 
         AlertDialog.Builder(this)
-            .setTitle("ارسال برای ${list.size} نفر - انتخاب سیم‌کارت:")
+            .setTitle("ارسال برای ${list.size} نفر")
             .setSingleChoiceItems(labels, selectedIndex) { _, which ->
                 chosenSubId = simOptions[which].subId
             }
             .setPositiveButton("تأیید و ارسال") { _, _ ->
+                selectedSubId = chosenSubId
                 prefs.edit().putInt("selected_sub_id", chosenSubId).apply()
                 updateSimSelectionUi()
                 startSending(list, text, chosenSubId)
             }
-            .setNegativeButton("لغو", null)
+            .setNegativeButton("انصراف", null)
             .show()
     }
 
     private fun startSending(list: List<String>, text: String, subId: Int) {
         sending = true
         sendBtn.isEnabled = false
+        sendBtn.alpha = 0.5f
+        progressBar.visibility = View.VISIBLE
+        progressBar.max = list.size
+        progressBar.progress = 0
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         sendNext(list, text, subId, 0, 0)
     }
@@ -479,8 +625,10 @@ class MainActivity : Activity() {
         if (i >= list.size) {
             sending = false
             sendBtn.isEnabled = true
+            sendBtn.alpha = 1.0f
+            progressBar.visibility = View.GONE
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            statusText.text = "تمام شد: ${list.size - failed} ارسال شد، $failed ناموفق."
+            statusText.text = "🎉 ارسال کامل شد: ${list.size - failed} موفق، $failed ناموفق."
             refresh()
             return
         }
@@ -496,9 +644,9 @@ class MainActivity : Activity() {
         } catch (e: Exception) {
             f++
         }
-        statusText.text = "در حال ارسال ${i + 1} از ${list.size} ... (برنامه را باز نگه دارید)"
+        progressBar.progress = i + 1
+        statusText.text = "در حال ارسال ${i + 1} از ${list.size} ... (صفحه را نبندید)"
         refresh()
-        // فاصله ۳ ثانیه بین پیامک‌ها تا خط کمتر محدود شود
         ui.postDelayed({ sendNext(list, text, subId, i + 1, f) }, 3000)
     }
 }
