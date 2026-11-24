@@ -13,6 +13,10 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.ContactsContract
 import android.telephony.SmsManager
+import android.telephony.SubscriptionInfo
+import android.telephony.SubscriptionManager
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -35,7 +39,9 @@ import java.util.Calendar
  */
 class MainActivity : Activity() {
 
-    data class Contact(val name: String, val phone: String, val md: Int) // md = ماه*100 + روز
+    data class Contact
+    data class SimOption(val label: String, val subId: Int)
+(val name: String, val phone: String, val md: Int) // md = ماه*100 + روز
 
     private val ui = Handler(Looper.getMainLooper())
     private lateinit var prefs: SharedPreferences
@@ -50,10 +56,17 @@ class MainActivity : Activity() {
     private lateinit var dayEdit: EditText
     private lateinit var infoText: TextView
     private lateinit var msgEdit: EditText
+    private lateinit var simRadioGroup: RadioGroup
     private lateinit var sendBtn: Button
     private lateinit var statusText: TextView
 
     // ---------------------------------------------------------------- UI
+
+    private val requiredPerms = arrayOf(
+        Manifest.permission.READ_CONTACTS,
+        Manifest.permission.SEND_SMS,
+        Manifest.permission.READ_PHONE_STATE
+    )
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
@@ -113,6 +126,17 @@ class MainActivity : Activity() {
         })
         root.addView(msgEdit)
 
+        root.addView(TextView(this).apply {
+            text = "انتخاب سیم‌کارت برای ارسال:"
+            textSize = 16f
+            setPadding(0, dp(12), 0, dp(4))
+        })
+
+        simRadioGroup = RadioGroup(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        root.addView(simRadioGroup)
+
         sendBtn = Button(this).apply {
             text = "ارسال پیامک امروز"
             textSize = 20f
@@ -145,16 +169,22 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         updateToday()
-        if (hasPerms()) loadContacts()
-        else requestPermissions(
-            arrayOf(Manifest.permission.READ_CONTACTS, Manifest.permission.SEND_SMS), 1
-        )
+        if (hasPerms()) {
+            loadContacts()
+            updateSimSelectionUi()
+        } else {
+            requestPermissions(requiredPerms, 1)
+        }
     }
 
     override fun onRequestPermissionsResult(code: Int, perms: Array<out String>, res: IntArray) {
         super.onRequestPermissionsResult(code, perms, res)
-        if (hasPerms()) loadContacts()
-        else statusText.text = "برای کار کردن برنامه، دسترسی به مخاطبین و پیامک را تأیید کنید."
+        if (hasPerms()) {
+            loadContacts()
+            updateSimSelectionUi()
+        } else {
+            statusText.text = "برای کار کردن برنامه، لطفاً دسترسی‌ها را تأیید کنید."
+        }
     }
 
     private fun hasPerms(): Boolean =
@@ -206,6 +236,94 @@ class MainActivity : Activity() {
             jd = 1 + (days - 186) % 30
         }
         return intArrayOf(jy, jm, jd)
+    }
+
+    // ---------------------------------------------------------------- سیم‌کارت
+
+    private fun getSimOptions(): List<SimOption> {
+        val list = ArrayList<SimOption>()
+        if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) {
+            val sm = getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
+            if (sm != null) {
+                try {
+                    val subs = sm.activeSubscriptionInfoList
+                    if (!subs.isNullOrEmpty()) {
+                        for (sub in subs) {
+                            val slot = sub.simSlotIndex
+                            val carrier = sub.displayName?.toString()?.trim() ?: ""
+                            val carrierName = sub.carrierName?.toString()?.trim() ?: ""
+                            val name = if (carrier.isNotEmpty()) carrier else carrierName
+                            val label = "سیم‌کارت ${slot + 1}" + if (name.isNotEmpty() && name != "SIM ${slot + 1}") " ($name)" else ""
+                            list.add(SimOption(label, sub.subscriptionId))
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+        if (list.isEmpty()) {
+            list.add(SimOption("سیم‌کارت ۱", -1))
+            list.add(SimOption("سیم‌کارت ۲", -2))
+        } else {
+            list.add(SimOption("پیش‌فرض سیستم", -1))
+        }
+        return list
+    }
+
+    private fun updateSimSelectionUi() {
+        if (!::simRadioGroup.isInitialized) return
+        simRadioGroup.removeAllViews()
+        val options = getSimOptions()
+        val savedSubId = prefs.getInt("selected_sub_id", -1)
+        var hasMatch = false
+
+        for (opt in options) {
+            val rb = RadioButton(this).apply {
+                text = opt.label
+                textSize = 15f
+                isChecked = (opt.subId == savedSubId)
+                setOnCheckedChangeListener { _, isChecked ->
+                    if (isChecked) {
+                        prefs.edit().putInt("selected_sub_id", opt.subId).apply()
+                    }
+                }
+            }
+            if (rb.isChecked) hasMatch = true
+            simRadioGroup.addView(rb)
+        }
+
+        if (!hasMatch && simRadioGroup.childCount > 0) {
+            (simRadioGroup.getChildAt(0) as? RadioButton)?.isChecked = true
+        }
+    }
+
+    private fun resolveSubId(targetSubId: Int): Int {
+        if (targetSubId > 0) return targetSubId
+        if (targetSubId == -2) {
+            if (Build.VERSION.SDK_INT >= 29) {
+                try {
+                    val id = SubscriptionManager.getSubscriptionId(1)
+                    if (id != SubscriptionManager.INVALID_SUBSCRIPTION_ID) return id
+                } catch (_: Exception) {}
+            }
+        }
+        return -1
+    }
+
+    private fun getSmsManager(subId: Int): SmsManager {
+        val finalSubId = resolveSubId(subId)
+        return if (Build.VERSION.SDK_INT >= 31) {
+            val base = getSystemService(SmsManager::class.java)
+                ?: @Suppress("DEPRECATION") SmsManager.getDefault()
+            if (finalSubId > 0) base.createForSubscriptionId(finalSubId) else base
+        } else {
+            if (finalSubId > 0) {
+                @Suppress("DEPRECATION")
+                SmsManager.getSmsManagerForSubscriptionId(finalSubId)
+            } else {
+                @Suppress("DEPRECATION")
+                SmsManager.getDefault()
+            }
+        }
     }
 
     // ---------------------------------------------------------------- مخاطبین
@@ -314,9 +432,7 @@ class MainActivity : Activity() {
         if (sending) return
         if (!hasPerms()) {
             Toast.makeText(this, "ابتدا دسترسی‌ها را تأیید کنید", Toast.LENGTH_LONG).show()
-            requestPermissions(
-                arrayOf(Manifest.permission.READ_CONTACTS, Manifest.permission.SEND_SMS), 1
-            )
+            requestPermissions(requiredPerms, 1)
             return
         }
         val text = msgEdit.text.toString().trim()
@@ -329,26 +445,37 @@ class MainActivity : Activity() {
             Toast.makeText(this, "کسی برای ارسال نمانده", Toast.LENGTH_LONG).show()
             return
         }
+
+        val simOptions = getSimOptions()
+        val savedSubId = prefs.getInt("selected_sub_id", -1)
+        var selectedIndex = simOptions.indexOfFirst { it.subId == savedSubId }
+        if (selectedIndex < 0) selectedIndex = 0
+
+        val labels = simOptions.map { it.label }.toTypedArray()
+        var chosenSubId = simOptions[selectedIndex].subId
+
         AlertDialog.Builder(this)
-            .setTitle("تأیید ارسال")
-            .setMessage("پیامک برای ${list.size} نفر ارسال شود؟")
-            .setPositiveButton("ارسال") { _, _ -> startSending(list, text) }
+            .setTitle("ارسال برای ${list.size} نفر - انتخاب سیم‌کارت:")
+            .setSingleChoiceItems(labels, selectedIndex) { _, which ->
+                chosenSubId = simOptions[which].subId
+            }
+            .setPositiveButton("تأیید و ارسال") { _, _ ->
+                prefs.edit().putInt("selected_sub_id", chosenSubId).apply()
+                updateSimSelectionUi()
+                startSending(list, text, chosenSubId)
+            }
             .setNegativeButton("لغو", null)
             .show()
     }
 
-    private fun smsManager(): SmsManager =
-        if (Build.VERSION.SDK_INT >= 31) getSystemService(SmsManager::class.java)
-        else @Suppress("DEPRECATION") SmsManager.getDefault()
-
-    private fun startSending(list: List<String>, text: String) {
+    private fun startSending(list: List<String>, text: String, subId: Int) {
         sending = true
         sendBtn.isEnabled = false
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        sendNext(list, text, 0, 0)
+        sendNext(list, text, subId, 0, 0)
     }
 
-    private fun sendNext(list: List<String>, text: String, i: Int, failed: Int) {
+    private fun sendNext(list: List<String>, text: String, subId: Int, i: Int, failed: Int) {
         if (i >= list.size) {
             sending = false
             sendBtn.isEnabled = true
@@ -360,7 +487,7 @@ class MainActivity : Activity() {
         var f = failed
         val phone = list[i]
         try {
-            val sms = smsManager()
+            val sms = getSmsManager(subId)
             val parts = sms.divideMessage(text)
             sms.sendMultipartTextMessage(phone, null, parts, null, null)
             val set = HashSet(sentSet())
@@ -372,6 +499,6 @@ class MainActivity : Activity() {
         statusText.text = "در حال ارسال ${i + 1} از ${list.size} ... (برنامه را باز نگه دارید)"
         refresh()
         // فاصله ۳ ثانیه بین پیامک‌ها تا خط کمتر محدود شود
-        ui.postDelayed({ sendNext(list, text, i + 1, f) }, 3000)
+        ui.postDelayed({ sendNext(list, text, subId, i + 1, f) }, 3000)
     }
 }
