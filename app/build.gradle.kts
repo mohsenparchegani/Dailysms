@@ -1,16 +1,16 @@
 plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
 }
 
 android {
     namespace = "ir.yalda.dailysms"
-    compileSdk = 35
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "ir.yalda.dailysms"
-        minSdk = 26
-        targetSdk = 35
+        minSdk = 24
+        targetSdk = 34
         versionCode = 3
         versionName = "1.2"
     }
@@ -18,10 +18,6 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
         }
     }
     compileOptions {
@@ -31,8 +27,4 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
-}
-
-dependencies {
-    implementation(libs.androidx.core.ktx)
 }
