@@ -79,6 +79,8 @@ class MainActivity : Activity() {
     private var currentMonth: Int = 1
     private var currentDay: Int = 1
     private var todayKey: String = ""
+    private var targetCal: Calendar = Calendar.getInstance()
+    private lateinit var targetRelationBadge: TextView
 
     private val requiredPerms = arrayOf(
         Manifest.permission.READ_CONTACTS,
@@ -186,7 +188,7 @@ class MainActivity : Activity() {
         headerCard.addView(todayBadgeText)
         root.addView(headerCard)
 
-        // --- ۲. کارت سه‌بعدی تاریخ ارسال امروز (ثابت و غیرقابل تغییر) ---
+        // --- ۲. کارت تاریخ ارسال پیامک؛ پیش‌فرض یک روز قبل‌تر از امروز ---
         val dateCard = create3DCard(Color.WHITE, 16, 5).apply {
             setPadding(dp(16), dp(14), dp(16), dp(14))
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -195,7 +197,7 @@ class MainActivity : Activity() {
         }
 
         val dateLabel = TextView(this).apply {
-            text = "📅 تاریخ ارسال امروز (هماهنگ با تقویم ملی و مناسبت‌ها)"
+            text = "📅 تاریخ ارسال پیامک‌ها"
             textSize = 13f
             setTextColor(Color.parseColor("#64748B"))
             setTypeface(null, Typeface.BOLD)
@@ -210,7 +212,22 @@ class MainActivity : Activity() {
         }
         dateCard.addView(targetDateView)
 
-        val dateActionRow = LinearLayout(this).apply {
+        targetRelationBadge = TextView(this).apply {
+            textSize = 12f
+            setTextColor(Color.parseColor("#2563EB"))
+            setTypeface(null, Typeface.BOLD)
+            setPadding(dp(8), dp(3), dp(8), dp(3))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#EFF6FF"))
+                cornerRadius = dp(6).toFloat()
+            }
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = dp(4)
+            layoutParams = lp
+        }
+        dateCard.addView(targetRelationBadge)
+
+        val quickShiftRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -218,27 +235,60 @@ class MainActivity : Activity() {
             layoutParams = lp
         }
 
+        fun dateButton(label: String, color: String, weight: Float = 1f, action: () -> Unit): TextView {
+            return TextView(this).apply {
+                text = label
+                textSize = 12f
+                setTextColor(if (color == "#2563EB") Color.WHITE else Color.parseColor("#1E293B"))
+                setTypeface(null, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(dp(4), dp(8), dp(4), dp(8))
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor(color))
+                    cornerRadius = dp(8).toFloat()
+                    if (color != "#2563EB") setStroke(dp(1), Color.parseColor("#CBD5E1"))
+                }
+                val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, weight)
+                lp.marginEnd = dp(4)
+                layoutParams = lp
+                setOnClickListener { action() }
+            }
+        }
+
+        quickShiftRow.addView(dateButton("◀ روز قبل", "#F8FAFC") {
+            targetCal.add(Calendar.DAY_OF_MONTH, -1)
+            syncDateFromTargetCal()
+        })
+        quickShiftRow.addView(dateButton("⚡ یک روز قبل", "#2563EB", 1.2f) {
+            resetToYesterdayDefault(true)
+        })
+        quickShiftRow.addView(dateButton("امروز", "#F8FAFC", 0.8f) {
+            resetToToday(true)
+        })
+        quickShiftRow.addView(dateButton("روز بعد ▶", "#F8FAFC") {
+            targetCal.add(Calendar.DAY_OF_MONTH, 1)
+            syncDateFromTargetCal()
+        })
+        dateCard.addView(quickShiftRow)
+
         val changeDateBtn = TextView(this).apply {
-            text = "✏️ تنظیم یا انتخاب تاریخ دیگر"
-            textSize = 13f
+            text = "✏️ انتخاب تاریخ دلخواه"
+            textSize = 12f
             setTextColor(Color.parseColor("#1D4ED8"))
             setTypeface(null, Typeface.BOLD)
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            val bg = GradientDrawable().apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(12), dp(7), dp(12), dp(7))
+            background = GradientDrawable().apply {
                 setColor(Color.parseColor("#EFF6FF"))
                 cornerRadius = dp(8).toFloat()
                 setStroke(dp(1), Color.parseColor("#BFDBFE"))
             }
-            background = bg
-            setOnClickListener {
-                showDatePickerDialog()
-            }
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = dp(8)
+            layoutParams = lp
+            setOnClickListener { showDatePickerDialog() }
         }
-        dateActionRow.addView(changeDateBtn)
-        dateCard.addView(dateActionRow)
-        dateCard.setOnClickListener {
-            showDatePickerDialog()
-        }
+        dateCard.addView(changeDateBtn)
         root.addView(dateCard)
 
         // --- ۳. ردیف آمار سه‌بعدی مخاطبین (دو کپسول برجسته مدرن) ---
@@ -573,19 +623,14 @@ class MainActivity : Activity() {
     )
 
     private fun setupToday() {
-        val cal = Calendar.getInstance()
-        val gy = cal.get(Calendar.YEAR)
-        val gm = cal.get(Calendar.MONTH) + 1
-        val gd = cal.get(Calendar.DAY_OF_MONTH)
-
-        val j = gregorianToJalali(gy, gm, gd)
-        currentYear = j[0]
-        currentMonth = j[1]
-        currentDay = j[2]
-        todayKey = String.format("%04d-%02d-%02d", currentYear, currentMonth, currentDay)
-
-        val mName = if (currentMonth in 1..12) monthNames[currentMonth] else "$currentMonth"
-        val dayOfWeek = when (cal.get(Calendar.DAY_OF_WEEK)) {
+        val todayCal = Calendar.getInstance()
+        val jy = gregorianToJalali(
+            todayCal.get(Calendar.YEAR),
+            todayCal.get(Calendar.MONTH) + 1,
+            todayCal.get(Calendar.DAY_OF_MONTH)
+        )
+        val mName = if (jy[1] in 1..12) monthNames[jy[1]] else "${jy[1]}"
+        val dayOfWeek = when (todayCal.get(Calendar.DAY_OF_WEEK)) {
             Calendar.SATURDAY -> "شنبه"
             Calendar.SUNDAY -> "یک‌شنبه"
             Calendar.MONDAY -> "دوشنبه"
@@ -595,14 +640,51 @@ class MainActivity : Activity() {
             Calendar.FRIDAY -> "جمعه"
             else -> ""
         }
+        todayBadgeText.text = "امروز: $dayOfWeek ${jy[2]} $mName ${jy[0]}"
+        resetToYesterdayDefault(false)
+    }
 
-        todayBadgeText.text = "امروز: $dayOfWeek $currentDay $mName $currentYear"
+    private fun resetToYesterdayDefault(showToast: Boolean = false) {
+        targetCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, -1) }
+        syncDateFromTargetCal()
+        if (showToast) Toast.makeText(this, "تاریخ ارسال روی یک روز قبل‌تر تنظیم شد.", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun resetToToday(showToast: Boolean = true) {
+        targetCal = Calendar.getInstance()
+        syncDateFromTargetCal()
+        if (showToast) Toast.makeText(this, "تاریخ ارسال روی امروز تنظیم شد.", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun syncDateFromTargetCal() {
+        val j = gregorianToJalali(
+            targetCal.get(Calendar.YEAR),
+            targetCal.get(Calendar.MONTH) + 1,
+            targetCal.get(Calendar.DAY_OF_MONTH)
+        )
+        currentYear = j[0]
+        currentMonth = j[1]
+        currentDay = j[2]
+        todayKey = String.format("%04d-%02d-%02d", currentYear, currentMonth, currentDay)
         updateTargetDateLabel()
+        loadOptions()
+        refresh()
     }
 
     private fun updateTargetDateLabel() {
+        if (!::targetDateView.isInitialized) return
         val mName = if (currentMonth in 1..12) monthNames[currentMonth] else "$currentMonth"
         targetDateView.text = "ارسال به مخاطبین روز $currentDay  ماه $mName  (همه سال‌ها)"
+
+        val today = Calendar.getInstance()
+        val todayJ = gregorianToJalali(today.get(Calendar.YEAR), today.get(Calendar.MONTH) + 1, today.get(Calendar.DAY_OF_MONTH))
+        val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, -1) }
+        val yesterdayJ = gregorianToJalali(yesterday.get(Calendar.YEAR), yesterday.get(Calendar.MONTH) + 1, yesterday.get(Calendar.DAY_OF_MONTH))
+        targetRelationBadge.text = when {
+            currentYear == yesterdayJ[0] && currentMonth == yesterdayJ[1] && currentDay == yesterdayJ[2] -> "⚡ پیش‌فرض: یک روز قبل‌تر از امروز"
+            currentYear == todayJ[0] && currentMonth == todayJ[1] && currentDay == todayJ[2] -> "📌 تاریخ امروز"
+            else -> "📅 تاریخ انتخابی"
+        }
     }
 
     private fun showDatePickerDialog() {
@@ -610,7 +692,6 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(16), dp(20), dp(16))
         }
-
         val hint = TextView(this).apply {
             text = "روز و ماه مورد نظر را برای ارسال به مخاطبین انتخاب کنید:"
             textSize = 14f
@@ -618,53 +699,39 @@ class MainActivity : Activity() {
             setPadding(0, 0, 0, dp(12))
         }
         dialogView.addView(hint)
-
         val pickersRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
-
         val monthSpinner = Spinner(this).apply {
-            val months = monthNames.drop(1).toTypedArray()
-            val adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, months)
+            val adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, monthNames.drop(1).toTypedArray())
             this.adapter = adapter
             setSelection((currentMonth - 1).coerceIn(0, 11))
-            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f)
-            layoutParams = lp
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f)
         }
-
         val daySpinner = Spinner(this).apply {
-            val days = (1..31).map { "$it" }.toTypedArray()
-            val adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, days)
+            val adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, (1..31).map { "$it" }.toTypedArray())
             this.adapter = adapter
             setSelection((currentDay - 1).coerceIn(0, 30))
             val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             lp.marginStart = dp(10)
             layoutParams = lp
         }
-
         pickersRow.addView(monthSpinner)
         pickersRow.addView(daySpinner)
         dialogView.addView(pickersRow)
-
         AlertDialog.Builder(this)
             .setTitle("📅 تنظیم تاریخ ارسال")
             .setView(dialogView)
             .setPositiveButton("تأیید و اعمال") { _, _ ->
-                currentMonth = monthSpinner.selectedItemPosition + 1
-                currentDay = daySpinner.selectedItemPosition + 1
-                todayKey = String.format("%04d-%02d-%02d", currentYear, currentMonth, currentDay)
-                updateTargetDateLabel()
-                loadOptions()
-                refresh()
-                Toast.makeText(this, "تاریخ ارسال به $currentDay ${monthNames[currentMonth]} تغییر یافت.", Toast.LENGTH_SHORT).show()
+                val month = monthSpinner.selectedItemPosition + 1
+                val day = daySpinner.selectedItemPosition + 1
+                val g = jalaliToGregorian(currentYear, month, day)
+                targetCal = Calendar.getInstance().apply { set(g[0], g[1] - 1, g[2]) }
+                syncDateFromTargetCal()
+                Toast.makeText(this, "تاریخ ارسال تغییر کرد.", Toast.LENGTH_SHORT).show()
             }
-            .setNeutralButton("تنظیم مجدد به امروز") { _, _ ->
-                setupToday()
-                loadOptions()
-                refresh()
-                Toast.makeText(this, "تاریخ به روز جاری برگشت.", Toast.LENGTH_SHORT).show()
-            }
+            .setNeutralButton("یک روز قبل از امروز") { _, _ -> resetToYesterdayDefault(true) }
             .setNegativeButton("انصراف", null)
             .show()
     }
@@ -740,6 +807,41 @@ class MainActivity : Activity() {
                 )
             }
         }
+    }
+
+    /** تبدیل شمسی به میلادی برای نگهداری تاریخ انتخابی به‌صورت دقیق */
+    private fun jalaliToGregorian(jyIn: Int, jmIn: Int, jdIn: Int): IntArray {
+        val jy = jyIn - 979
+        val jm = jmIn - 1
+        val jd = jdIn - 1
+        var jDayNo = 365 * jy + (jy / 33) * 8 + ((jy % 33 + 3) / 4)
+        for (i in 0 until jm) jDayNo += if (i < 6) 31 else 30
+        jDayNo += jd
+        var gDayNo = jDayNo + 79
+        var gy = 1600 + 400 * (gDayNo / 146097)
+        gDayNo %= 146097
+        var leap = true
+        if (gDayNo >= 36525) {
+            gDayNo -= 1
+            gy += 100 * (gDayNo / 36524)
+            gDayNo %= 36524
+            if (gDayNo >= 365) gDayNo += 1 else leap = false
+        }
+        gy += 4 * (gDayNo / 1461)
+        gDayNo %= 1461
+        if (gDayNo >= 366) {
+            leap = false
+            gDayNo -= 1
+            gy += gDayNo / 365
+            gDayNo %= 365
+        }
+        val gDaysInMonth = intArrayOf(31, if (leap) 29 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+        var gm = 0
+        while (gDayNo >= gDaysInMonth[gm]) {
+            gDayNo -= gDaysInMonth[gm]
+            gm++
+        }
+        return intArrayOf(gy, gm + 1, gDayNo + 1)
     }
 
     /**
