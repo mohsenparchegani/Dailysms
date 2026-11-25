@@ -760,8 +760,8 @@ class MainActivity : Activity() {
             "سیم ${s.slotIndex}: ${s.name} ($opLabel)"
         }
 
-        simSummaryText.text = "✅ شناسایی شد: $names
-🎯 الگوریتم هوشمند فعال: شماره‌های همراه اول با سیم همراه اول و شماره‌های ایرانسل با سیم ایرانسل ارسال می‌شوند (همراه با سقف ۵۰/۵۰ تا هیچ خطی مسدود نشود)."
+        simSummaryText.text = """✅ شناسایی شد: $names
+🎯 الگوریتم هوشمند فعال: شماره‌های همراه اول با سیم همراه اول و شماره‌های ایرانسل با سیم ایرانسل ارسال می‌شوند (همراه با سقف ۵۰/۵۰ تا هیچ خطی مسدود نشود)."""
     }
 
     private fun getSmsManagerForSub(subId: Int): SmsManager {
@@ -794,7 +794,7 @@ class MainActivity : Activity() {
         return sb.toString()
     }
 
-    private val dateRegex = Regex("^\s*(\d{4})[/\-.]?(\d{2})[/\-.]?(\d{2})(?!\d)")
+    private val dateRegex = Regex("""^\s*(\d{4})[/\-.]?(\d{2})[/\-.]?(\d{2})(?!\d)""")
 
     private fun parseMd(name: String): Int? {
         val m = dateRegex.find(latinDigits(name)) ?: return null
@@ -809,7 +809,7 @@ class MainActivity : Activity() {
         if (d.startsWith("0098")) d = d.substring(4)
         else if (d.startsWith("98") && d.length == 12) d = d.substring(2)
         if (d.length == 10 && d.startsWith("9")) d = "0$d"
-        return if (Regex("^09\d{9}$").matches(d)) d else null
+        return if (Regex("""^09\d{9}$""").matches(d)) d else null
     }
 
     private fun loadContacts() {
@@ -960,22 +960,22 @@ class MainActivity : Activity() {
         val sim2Count = tasks.count { slots.size > 1 && it.subId == slots[1].subId }
 
         val simDesc = if (slots.size >= 2) {
-            "📱 تقسیم هوشمند اپراتور و بالانس سهمیه‌ها:
+            """📱 تقسیم هوشمند اپراتور و بالانس سهمیه‌ها:
 • سیم ۱ (${slots[0].name}): $sim1Count پیامک
 • سیم ۲ (${slots[1].name}): $sim2Count پیامک
-(اولویت با ارسال شماره‌های همراه اول با سیم همراه اول و ایرانسل با ایرانسل + تقسیم ۵۰/۵۰ جهت پیشگیری از مسدودی)"
+(اولویت با ارسال شماره‌های همراه اول با سیم همراه اول و ایرانسل با سیم ایرانسل + تقسیم ۵۰/۵۰ جهت پیشگیری از مسدودی)""".trimIndent()
         } else {
             "پیامک‌ها از سیم‌کارت فعال ارسال خواهند شد."
         }
 
         AlertDialog.Builder(this)
             .setTitle("ارسال هوشمند برای ${list.size} مخاطب")
-            .setMessage("متن ارسالی:
+            .setMessage("""متن ارسالی:
 $text
 
 $simDesc
 
-آیا ارسال شروع شود؟")
+آیا ارسال شروع شود؟""".trimIndent())
             .setPositiveButton("شروع ارسال") { _, _ ->
                 startSending(tasks, text)
             }
