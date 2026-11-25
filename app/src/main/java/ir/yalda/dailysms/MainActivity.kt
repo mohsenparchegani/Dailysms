@@ -29,6 +29,8 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
+import android.widget.Spinner
+import android.widget.ArrayAdapter
 import android.widget.TextView
 import android.widget.Toast
 import java.util.Calendar
@@ -73,6 +75,7 @@ class MainActivity : Activity() {
     private var selectedOptionIndex = 0
     private var currentDailyOptions = listOf<String>()
 
+    private var currentYear: Int = 1405
     private var currentMonth: Int = 1
     private var currentDay: Int = 1
     private var todayKey: String = ""
@@ -206,6 +209,36 @@ class MainActivity : Activity() {
             setPadding(0, dp(4), 0, 0)
         }
         dateCard.addView(targetDateView)
+
+        val dateActionRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = dp(10)
+            layoutParams = lp
+        }
+
+        val changeDateBtn = TextView(this).apply {
+            text = "✏️ تنظیم یا انتخاب تاریخ دیگر"
+            textSize = 13f
+            setTextColor(Color.parseColor("#1D4ED8"))
+            setTypeface(null, Typeface.BOLD)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            val bg = GradientDrawable().apply {
+                setColor(Color.parseColor("#EFF6FF"))
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#BFDBFE"))
+            }
+            background = bg
+            setOnClickListener {
+                showDatePickerDialog()
+            }
+        }
+        dateActionRow.addView(changeDateBtn)
+        dateCard.addView(dateActionRow)
+        dateCard.setOnClickListener {
+            showDatePickerDialog()
+        }
         root.addView(dateCard)
 
         // --- ۳. ردیف آمار سه‌بعدی مخاطبین (دو کپسول برجسته مدرن) ---
@@ -534,6 +567,11 @@ class MainActivity : Activity() {
 
     // ---------------------------------------------------------------- تاریخ شمسی
 
+    private val monthNames = arrayOf(
+        "", "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+        "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"
+    )
+
     private fun setupToday() {
         val cal = Calendar.getInstance()
         val gy = cal.get(Calendar.YEAR)
@@ -541,15 +579,11 @@ class MainActivity : Activity() {
         val gd = cal.get(Calendar.DAY_OF_MONTH)
 
         val j = gregorianToJalali(gy, gm, gd)
-        val jy = j[0]
+        currentYear = j[0]
         currentMonth = j[1]
         currentDay = j[2]
-        todayKey = String.format("%04d-%02d-%02d", jy, currentMonth, currentDay)
+        todayKey = String.format("%04d-%02d-%02d", currentYear, currentMonth, currentDay)
 
-        val monthNames = arrayOf(
-            "", "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
-            "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"
-        )
         val mName = if (currentMonth in 1..12) monthNames[currentMonth] else "$currentMonth"
         val dayOfWeek = when (cal.get(Calendar.DAY_OF_WEEK)) {
             Calendar.SATURDAY -> "شنبه"
@@ -562,8 +596,77 @@ class MainActivity : Activity() {
             else -> ""
         }
 
-        todayBadgeText.text = "امروز: $dayOfWeek $currentDay $mName $jy"
+        todayBadgeText.text = "امروز: $dayOfWeek $currentDay $mName $currentYear"
+        updateTargetDateLabel()
+    }
+
+    private fun updateTargetDateLabel() {
+        val mName = if (currentMonth in 1..12) monthNames[currentMonth] else "$currentMonth"
         targetDateView.text = "ارسال به مخاطبین روز $currentDay  ماه $mName  (همه سال‌ها)"
+    }
+
+    private fun showDatePickerDialog() {
+        val dialogView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(16), dp(20), dp(16))
+        }
+
+        val hint = TextView(this).apply {
+            text = "روز و ماه مورد نظر را برای ارسال به مخاطبین انتخاب کنید:"
+            textSize = 14f
+            setTextColor(Color.parseColor("#334155"))
+            setPadding(0, 0, 0, dp(12))
+        }
+        dialogView.addView(hint)
+
+        val pickersRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+
+        val monthSpinner = Spinner(this).apply {
+            val months = monthNames.drop(1).toTypedArray()
+            val adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, months)
+            this.adapter = adapter
+            setSelection((currentMonth - 1).coerceIn(0, 11))
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f)
+            layoutParams = lp
+        }
+
+        val daySpinner = Spinner(this).apply {
+            val days = (1..31).map { "$it" }.toTypedArray()
+            val adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, days)
+            this.adapter = adapter
+            setSelection((currentDay - 1).coerceIn(0, 30))
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            lp.marginStart = dp(10)
+            layoutParams = lp
+        }
+
+        pickersRow.addView(monthSpinner)
+        pickersRow.addView(daySpinner)
+        dialogView.addView(pickersRow)
+
+        AlertDialog.Builder(this)
+            .setTitle("📅 تنظیم تاریخ ارسال")
+            .setView(dialogView)
+            .setPositiveButton("تأیید و اعمال") { _, _ ->
+                currentMonth = monthSpinner.selectedItemPosition + 1
+                currentDay = daySpinner.selectedItemPosition + 1
+                todayKey = String.format("%04d-%02d-%02d", currentYear, currentMonth, currentDay)
+                updateTargetDateLabel()
+                loadOptions()
+                refresh()
+                Toast.makeText(this, "تاریخ ارسال به $currentDay ${monthNames[currentMonth]} تغییر یافت.", Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton("تنظیم مجدد به امروز") { _, _ ->
+                setupToday()
+                loadOptions()
+                refresh()
+                Toast.makeText(this, "تاریخ به روز جاری برگشت.", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("انصراف", null)
+            .show()
     }
 
     private fun loadOptions() {
@@ -639,33 +742,43 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun gregorianToJalali(gy: Int, gm: Int, gd: Int): IntArray {
-        val gDm = intArrayOf(0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
-        var jy = if (gy <= 1600) 0 else 979
-        val gy2 = if (gy <= 1600) gy - 621 else gy - 1600
-        val leapG = (gy % 4 == 0 && gy % 100 != 0) || (gy % 400 == 0)
-        if (leapG) gDm[2] = 29
-        var gDayNo = 0
-        for (i in 1 until gm) gDayNo += gDm[i]
-        gDayNo += gd
-        var jDayNo = gDayNo + 79 + (gy2 * 365) + (gy2 / 4) - (gy2 / 100) + (gy2 / 400)
-        var days = jDayNo % 12053
-        jy += 33 * (jDayNo / 12053)
-        jy += 4 * (days / 1461)
-        days %= 1461
-        if (days > 365) {
-            jy += (days - 1) / 365
-            days = (days - 1) % 365
+    /**
+     * تبدیل دقیق و استاندارد تقویم میلادی به شمسی (الگوریتم رسمی جلالی)
+     */
+    private fun gregorianToJalali(gyear: Int, gmonth: Int, gday: Int): IntArray {
+        val gDaysInMonth = intArrayOf(31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+        val jDaysInMonth = intArrayOf(31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29)
+
+        val gy = gyear - 1600
+        val gm = gmonth - 1
+        var jDayNo = 365 * gy + (gy + 3) / 4 - (gy + 99) / 100 + (gy + 399) / 400 + gday - 1 - 79
+        for (i in 0 until gm) {
+            jDayNo += gDaysInMonth[i]
         }
-        val jm: Int
-        val jd: Int
-        if (days < 186) {
-            jm = 1 + days / 31
-            jd = 1 + days % 31
-        } else {
-            jm = 7 + (days - 186) / 30
-            jd = 1 + (days - 186) % 30
+        if (gm > 1 && ((gyear % 4 == 0 && gyear % 100 != 0) || (gyear % 400 == 0))) {
+            jDayNo += 1
         }
+
+        val jNp = jDayNo / 12053
+        jDayNo %= 12053
+        var jy = 979 + 33 * jNp + 4 * (jDayNo / 1461)
+        jDayNo %= 1461
+
+        if (jDayNo >= 366) {
+            jDayNo -= 1
+            jy += jDayNo / 365
+            jDayNo %= 365
+        }
+
+        var jm = 12
+        for (i in 0 until 11) {
+            if (jDayNo < jDaysInMonth[i]) {
+                jm = i + 1
+                break
+            }
+            jDayNo -= jDaysInMonth[i]
+        }
+        val jd = jDayNo + 1
         return intArrayOf(jy, jm, jd)
     }
 
