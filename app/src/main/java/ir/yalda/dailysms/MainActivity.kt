@@ -58,6 +58,13 @@ class MainActivity : Activity() {
     private lateinit var totalCountBadge: TextView
     private lateinit var pendingCountBadge: TextView
     private lateinit var totalContactsReadView: TextView
+    // ۴ گزینه انتخابی پیامک روز
+    private var selectedOptionIndex: Int = 0
+    private val optionViews = mutableListOf<LinearLayout>()
+    private val optionRadioViews = mutableListOf<TextView>()
+    private val optionTextViews = mutableListOf<TextView>()
+    private var currentDailyOptions = listOf<String>()
+
     private lateinit var simSummaryText: TextView
     private lateinit var msgEdit: EditText
     private lateinit var charCounterText: TextView
@@ -218,6 +225,89 @@ class MainActivity : Activity() {
         simCard.addView(simSummaryText)
         root.addView(simCard)
 
+
+        // --- ۴.۵. کارت انتخاب ۴ متن پیشنهادی روز ---
+        val optionsCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = roundRect(Color.WHITE, 14, 1, Color.parseColor("#E2E8F0"))
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = dp(12)
+            layoutParams = lp
+        }
+
+        val optionsHeader = TextView(this).apply {
+            text = "🎯 انتخاب متن امروز از بین ۴ گزینه (یکی را لمس کنید):"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1E293B"))
+            setPadding(0, 0, 0, dp(8))
+        }
+        optionsCard.addView(optionsHeader)
+
+        val optionTitles = listOf(
+            "📅 گزینه ۱: مناسبت و تقویم (شمسی / قمری / میلادی)",
+            "🏢 گزینه ۲: خرید و فروش ملک (۲۰ سال سابقه و اکازیون)",
+            "⚖️ گزینه ۳: کد رهگیری رسمی و نظارت وکیل دادگستری",
+            "🔑 گزینه ۴: رهن، اجاره، سرمایه‌گذاری و مشاوره تخصصی"
+        )
+
+        for (i in 0 until 4) {
+            val optItem = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = roundRect(Color.parseColor("#F8FAFC"), 10, 1, Color.parseColor("#E2E8F0"))
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                lp.topMargin = dp(6)
+                layoutParams = lp
+            }
+
+            val topRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                layoutParams = lp
+            }
+
+            val titleView = TextView(this).apply {
+                text = optionTitles[i]
+                textSize = 12f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#2563EB"))
+                val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                layoutParams = lp
+            }
+            topRow.addView(titleView)
+
+            val radioView = TextView(this).apply {
+                text = if (i == 0) "🔘 انتخابی" else "⚪ انتخاب"
+                textSize = 11f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(if (i == 0) Color.parseColor("#2563EB") else Color.parseColor("#64748B"))
+            }
+            topRow.addView(radioView)
+            optItem.addView(topRow)
+
+            val bodyView = TextView(this).apply {
+                textSize = 13f
+                setTextColor(Color.parseColor("#334155"))
+                setPadding(0, dp(4), 0, 0)
+                text = "در حال بارگذاری..."
+            }
+            optItem.addView(bodyView)
+
+            val optIndex = i
+            optItem.setOnClickListener {
+                selectOption(optIndex)
+            }
+
+            optionViews.add(optItem)
+            optionRadioViews.add(radioView)
+            optionTextViews.add(bodyView)
+            optionsCard.addView(optItem)
+        }
+
+        root.addView(optionsCard)
+
         // --- ۵. کادر متن پیامک (نمایش متن روز + قابلیت ویرایش) ---
         val msgCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -251,10 +341,10 @@ class MainActivity : Activity() {
             background = roundRect(Color.parseColor("#EFF6FF"), 8, 1, Color.parseColor("#BFDBFE"))
             setPadding(dp(8), dp(4), dp(8), dp(4))
             setOnClickListener {
-                val dayMsg = DailySmsBank.getMessage(currentMonth, currentDay)
-                msgEdit.setText(dayMsg)
-                prefs.edit().putString("custom_msg_$todayKey", dayMsg).apply()
-                Toast.makeText(this@MainActivity, "متن آماده امروز بارگذاری شد", Toast.LENGTH_SHORT).show()
+                val defaultOpt = if (selectedOptionIndex in currentDailyOptions.indices) currentDailyOptions[selectedOptionIndex] else DailySmsBank.getMessage(currentMonth, currentDay)
+                msgEdit.setText(defaultOpt)
+                prefs.edit().putString("custom_msg_$todayKey", defaultOpt).apply()
+                Toast.makeText(this@MainActivity, "متن گزینه انتخابی بازنشانی شد", Toast.LENGTH_SHORT).show()
             }
         }
         msgHeaderRow.addView(resetMsgBtn)
@@ -347,6 +437,55 @@ class MainActivity : Activity() {
         setContentView(scroll)
     }
 
+
+    private fun selectOption(index: Int) {
+        selectedOptionIndex = index
+        prefs.edit().putInt("selected_opt_idx_$todayKey", index).apply()
+
+        for (i in 0 until optionViews.size) {
+            val isSelected = (i == index)
+            if (isSelected) {
+                optionViews[i].background = roundRect(Color.parseColor("#EFF6FF"), 10, 2, Color.parseColor("#2563EB"))
+                optionRadioViews[i].text = "🔘 انتخاب شد"
+                optionRadioViews[i].setTextColor(Color.parseColor("#2563EB"))
+            } else {
+                optionViews[i].background = roundRect(Color.parseColor("#F8FAFC"), 10, 1, Color.parseColor("#E2E8F0"))
+                optionRadioViews[i].text = "⚪ انتخاب"
+                optionRadioViews[i].setTextColor(Color.parseColor("#64748B"))
+            }
+        }
+
+        if (index in currentDailyOptions.indices) {
+            val chosen = currentDailyOptions[index]
+            msgEdit.setText(chosen)
+            prefs.edit().putString("custom_msg_$todayKey", chosen).apply()
+            Toast.makeText(this, "گزینه ${index + 1} در کادر پیامک درج شد", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun updateOptionCards(options: List<String>) {
+        currentDailyOptions = options
+        for (i in 0 until minOf(options.size, optionTextViews.size)) {
+            val len = options[i].length
+            optionTextViews[i].text = "${options[i]} (${len} کاراکتر)"
+        }
+        val savedIdx = prefs.getInt("selected_opt_idx_$todayKey", 0)
+        selectedOptionIndex = if (savedIdx in options.indices) savedIdx else 0
+
+        for (i in 0 until optionViews.size) {
+            val isSelected = (i == selectedOptionIndex)
+            if (isSelected) {
+                optionViews[i].background = roundRect(Color.parseColor("#EFF6FF"), 10, 2, Color.parseColor("#2563EB"))
+                optionRadioViews[i].text = "🔘 انتخاب شد"
+                optionRadioViews[i].setTextColor(Color.parseColor("#2563EB"))
+            } else {
+                optionViews[i].background = roundRect(Color.parseColor("#F8FAFC"), 10, 1, Color.parseColor("#E2E8F0"))
+                optionRadioViews[i].text = "⚪ انتخاب"
+                optionRadioViews[i].setTextColor(Color.parseColor("#64748B"))
+            }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         updateToday()
@@ -385,9 +524,14 @@ class MainActivity : Activity() {
         // نمایش دقیق تاریخ طبق فرمت درخواستی (غیرقابل تغییر)
         targetDateView.text = "ارسال به مخاطبین روز ${j[2]} ماه ${j[1]} (همه سال‌ها)"
 
-        // بارگذاری خودکار متن روز در کادر (با قابلیت ویرایش)
+        // بارگذاری ۴ گزینه اختصاصی امروز و نمایش در کارت‌ها
+        val dailyOpts = DailySmsBank.getMessages(currentMonth, currentDay)
+        updateOptionCards(dailyOpts)
+
+        // بارگذاری متن در کادر (متن سفارشی ذخیره‌شده یا گزینه انتخابی)
         val savedForToday = prefs.getString("custom_msg_$todayKey", null)
-        val textToSet = savedForToday ?: DailySmsBank.getMessage(currentMonth, currentDay)
+        val defaultOpt = if (selectedOptionIndex in dailyOpts.indices) dailyOpts[selectedOptionIndex] else dailyOpts[0]
+        val textToSet = savedForToday ?: defaultOpt
         if (msgEdit.text.toString() != textToSet) {
             msgEdit.setText(textToSet)
         }
