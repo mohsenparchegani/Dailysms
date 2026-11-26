@@ -1171,7 +1171,7 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------------- اپراتور و سیم‌کارت‌ها
 
     private fun detectOperator(phone: String): Operator {
-        val p = normPhone(phone)
+        val p = normPhone(phone) ?: phone
         val clean = when {
             p.startsWith("+98") -> "0" + p.substring(3)
             p.startsWith("0098") -> "0" + p.substring(4)
@@ -1474,8 +1474,14 @@ class MainActivity : Activity() {
             }
             phoneCol.addView(pView)
 
+            val opName = when (op) {
+                Operator.MCI -> "همراه اول"
+                Operator.IRANCELL -> "ایرانسل"
+                Operator.RIGHTEL -> "رایتل"
+                Operator.OTHER -> "سایر"
+            }
             val tagView = TextView(this).apply {
-                text = if (isSent) "✓ ارسال شده" else "$op"
+                text = if (isSent) "✓ ارسال شده" else opName
                 textSize = 10.5f
                 setTextColor(Color.parseColor(if (isSent) "#16A34A" else "#C25E34"))
                 setTypeface(null, Typeface.BOLD)
