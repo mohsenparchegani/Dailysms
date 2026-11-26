@@ -995,7 +995,7 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------------- گزینه‌های پیامک روز
 
     private fun loadOptions() {
-        currentDailyOptions = DailySmsBank.getDailyOptions(currentMonth, currentDay)
+        currentDailyOptions = DailySmsBank.getMessages(currentMonth, currentDay)
         selectedOptionIndex = prefs.getInt("selected_opt_$todayKey", 0)
         if (selectedOptionIndex !in 0 until 4) selectedOptionIndex = 0
 
