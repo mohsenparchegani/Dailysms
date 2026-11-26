@@ -395,6 +395,24 @@ class MainActivity : Activity() {
         }
         statsTopRow.addView(pendingCountBadge)
         statsCard.addView(statsTopRow)
+
+        val statsActionRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(10), 0, 0)
+        }
+        val viewListBtn = TextView(this).apply {
+            text = "📋 مشاهده شماره‌ها و اسامی مخاطبین این روز"
+            textSize = 12f
+            setTextColor(Color.parseColor("#C25E34"))
+            setTypeface(null, Typeface.BOLD)
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            background = roundRect(Color.parseColor("#FFF7ED"), 8, 1, Color.parseColor("#FDBA74"))
+            setOnClickListener { showContactsListDialog() }
+        }
+        statsActionRow.addView(viewListBtn)
+        statsCard.addView(statsActionRow)
+        statsCard.setOnClickListener { showContactsListDialog() }
         root.addView(statsCard)
 
         // =========================================================================
@@ -746,16 +764,17 @@ class MainActivity : Activity() {
         loadOptions()
         updateSimInfo()
 
-        if (hasPerms()) {
+        if (canReadContacts()) {
             loadContacts()
-        } else {
+        }
+        if (!hasPerms()) {
             requestPermissions(requiredPerms, 1)
         }
     }
 
     override fun onResume() {
         super.onResume()
-        if (hasPerms() && !sending && contacts.isEmpty()) {
+        if (canReadContacts() && !sending && contacts.isEmpty()) {
             loadContacts()
         }
         updateSimInfo()
@@ -764,12 +783,16 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         updateSimInfo()
-        if (hasPerms()) {
+        if (canReadContacts()) {
             loadContacts()
-        } else {
-            Toast.makeText(this, "دسترسی‌های مخاطبین، پیامک و تلفن برای کارکرد خودکار الزامی است", Toast.LENGTH_LONG).show()
+        }
+        if (!hasPerms()) {
+            Toast.makeText(this, "دسترسی پیامک و وضعیت تلفن جهت ارسال الزامی است", Toast.LENGTH_SHORT).show()
         }
     }
+
+    private fun canReadContacts(): Boolean =
+        checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
 
     private fun hasPerms(): Boolean {
         for (p in requiredPerms) {
@@ -777,8 +800,6 @@ class MainActivity : Activity() {
         }
         return true
     }
-
-    // ---------------------------------------------------------------- تاریخ شمسی
 
     private val monthNames = arrayOf(
         "", "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
@@ -1283,64 +1304,196 @@ class MainActivity : Activity() {
         return sb.toString()
     }
 
+    /**
+     * استخراج ماه و روز شمسی از نام مخاطب:
+     * پشتیبانی کامل از:
+     * ۱) ۱۴۰۵۰۹۰۳ یا ۱۴۰۴۰۹۰۳ (۸ رقم پیوسته با سال ۴ رقمی)
+     * ۲) ۱۴۰۵/۰۹/۰۳ یا ۱۴۰۵-۰۹-۰۳ یا ۱۴۰۵.۰۹.۰۳
+     * ۳) ۱۴۰۵/۹/۳ یا ۱۴۰۵-۹-۳ (ماه یا روز تک‌رقمی با جداکننده)
+     * ۴) ۰۹/۰۳ یا ۹/۳ بدون سال
+     * ۵) ۰۹۰۳ (۴ رقم ماه و روز)
+     */
     private fun parseMd(name: String): Int? {
         val s = latinDigits(name)
-        val m = Regex("(?<!\\d)(\\d{1,2})[./\\-_](\\d{1,2})(?!\\d)").find(s) ?: return null
-        val a = m.groupValues[1].toIntOrNull() ?: return null
-        val b = m.groupValues[2].toIntOrNull() ?: return null
 
-        val (month, day) = when {
-            a in 1..12 && b in 1..31 && (a > 12 || b > 12) -> Pair(a, b)
-            b in 1..12 && a in 1..31 && (a > 12 || b > 12) -> Pair(b, a)
-            a in 1..12 && b in 1..31 -> Pair(a, b)
-            b in 1..12 && a in 1..31 -> Pair(b, a)
-            else -> return null
+        // ۱) ۴ رقم سال + ۲ رقم ماه + ۲ رقم روز (پیوسته یا با جداکننده مثل 14050903 یا 1405/09/03)
+        val m1 = Regex("""(?:^|[^\d])(\d{4})[/\-. ]?(\d{2})[/\-. ]?(\d{2})(?!\d)""").find(s)
+        if (m1 != null) {
+            val mo = m1.groupValues[2].toIntOrNull() ?: return null
+            val da = m1.groupValues[3].toIntOrNull() ?: return null
+            if (mo in 1..12 && da in 1..31) return mo * 100 + da
         }
-        return month * 100 + day
+
+        // ۲) ۴ رقم سال با جداکننده و ماه یا روز ۱ یا ۲ رقمی (مثل 1405/9/3 یا 1405-9-03)
+        val m2 = Regex("""(?:^|[^\d])(\d{4})[/\-. ]+(\d{1,2})[/\-. ]+(\d{1,2})(?!\d)""").find(s)
+        if (m2 != null) {
+            val mo = m2.groupValues[2].toIntOrNull() ?: return null
+            val da = m2.groupValues[3].toIntOrNull() ?: return null
+            if (mo in 1..12 && da in 1..31) return mo * 100 + da
+        }
+
+        // ۳) ماه و روز با جداکننده بدون سال (مثل 09/03 یا 9/3 یا 09-03)
+        val m3 = Regex("""(?:^|[^\d])(\d{1,2})[/\-. ]+(\d{1,2})(?!\d)""").find(s)
+        if (m3 != null) {
+            val mo = m3.groupValues[1].toIntOrNull() ?: return null
+            val da = m3.groupValues[2].toIntOrNull() ?: return null
+            if (mo in 1..12 && da in 1..31) return mo * 100 + da
+        }
+
+        // ۴) ۴ رقم ماه و روز فشرده (مثل 0903)
+        val m4 = Regex("""(?:^|[^\d])(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)""").find(s)
+        if (m4 != null) {
+            val mo = m4.groupValues[1].toIntOrNull() ?: return null
+            val da = m4.groupValues[2].toIntOrNull() ?: return null
+            return mo * 100 + da
+        }
+
+        return null
     }
 
-    private fun normPhone(raw: String): String {
-        val s = latinDigits(raw).replace("[^0-9+]".toRegex(), "")
-        return when {
-            s.startsWith("0098") -> "+98" + s.substring(4)
-            s.startsWith("098") -> "+98" + s.substring(3)
-            s.startsWith("98") -> "+98" + s.substring(2)
-            s.startsWith("09") -> "+98" + s.substring(1)
-            s.startsWith("9") && s.length == 10 -> "+98$s"
-            else -> s
-        }
+    private fun normPhone(raw: String): String? {
+        val digits = latinDigits(raw).filter { it.isDigit() }
+        var d = digits
+        if (d.startsWith("0098")) d = d.substring(4)
+        else if (d.startsWith("98") && d.length == 12) d = d.substring(2)
+        if (d.length == 10 && d.startsWith("9")) d = "0$d"
+        return if (Regex("""^09\d{9}$""").matches(d)) d else null
     }
 
     private fun loadContacts() {
+        if (!canReadContacts()) return
+        ui.post {
+            statusText.text = "⏳ در حال خواندن مخاطبین دفترچه تلفن..."
+        }
         Thread {
             val list = ArrayList<Contact>()
             var totalRead = 0
-            val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
-            val proj = arrayOf(
-                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
-                ContactsContract.CommonDataKinds.Phone.NUMBER
-            )
-            val cursor = contentResolver.query(uri, proj, null, null, null)
-            cursor?.use { c ->
-                val nameIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
-                val numIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
-                while (c.moveToNext()) {
-                    totalRead++
-                    val name = if (nameIdx >= 0) c.getString(nameIdx) ?: "" else ""
-                    val num = if (numIdx >= 0) c.getString(numIdx) ?: "" else ""
-                    val md = parseMd(name)
-                    if (md != null) {
-                        val p = normPhone(num)
-                        if (p.isNotEmpty()) list.add(Contact(name, p, md))
+            try {
+                val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+                val proj = arrayOf(
+                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                    ContactsContract.CommonDataKinds.Phone.NUMBER
+                )
+                val cursor = contentResolver.query(uri, proj, null, null, null)
+                cursor?.use { c ->
+                    val nameIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                    val numIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                    while (c.moveToNext()) {
+                        totalRead++
+                        val name = if (nameIdx >= 0) c.getString(nameIdx) ?: "" else ""
+                        val num = if (numIdx >= 0) c.getString(numIdx) ?: "" else ""
+                        val md = parseMd(name)
+                        if (md != null) {
+                            val p = normPhone(num)
+                            if (p != null) list.add(Contact(name, p, md))
+                        }
                     }
                 }
+            } catch (e: Exception) {
+                ui.post {
+                    statusText.text = "خطا در دسترسی به مخاطبین: ${e.message}"
+                }
             }
+
             contacts = list
             ui.post {
-                totalContactsReadView.text = "بررسی شد: $totalRead مخاطب خوانده شد (${list.size} مخاطب دارای تاریخ روز و ماه)"
+                val md = targetMd()
+                val todayCount = list.count { it.md == md }
+                totalContactsReadView.text = "بررسی شد: $totalRead مخاطب خوانده شد ($todayCount مخاطب برای تاریخ انتخابی)"
+                statusText.text = if (todayCount > 0) "آماده برای ارسال پیامک ($todayCount مخاطب)" else "آماده برای ارسال پیامک"
                 refresh()
             }
         }.start()
+    }
+
+    /**
+     * دیالوگ نمایش لیست مخاطبین و شماره‌های فیلتر شده برای تاریخ انتخابی
+     */
+    private fun showContactsListDialog() {
+        val md = targetMd()
+        val matching = contacts.filter { it.md == md }
+        val mName = if (currentMonth in 1..12) monthNames[currentMonth] else "$currentMonth"
+
+        val byPhone = LinkedHashMap<String, Contact>()
+        for (c in matching) {
+            if (!byPhone.containsKey(c.phone)) byPhone[c.phone] = c
+        }
+
+        if (byPhone.isEmpty()) {
+            Toast.makeText(this, "هیچ شماره‌ای برای روز $currentDay ماه $mName یافت نشد. اطمینان یابید تاریخ در نام مخاطب ثبت شده باشد.", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val scroll = ScrollView(this).apply {
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+        }
+
+        val listContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        val sent = sentSet()
+        var idx = 1
+        for ((_, c) in byPhone) {
+            val isSent = sent.contains(c.phone)
+            val op = detectOperator(c.phone)
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = roundRect(Color.parseColor(if (isSent) "#F5F5F4" else "#FFFFFF"), 10, 1, Color.parseColor("#E7E5E4"))
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                lp.bottomMargin = dp(6)
+                layoutParams = lp
+            }
+
+            val nameCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                layoutParams = lp
+            }
+            val numView = TextView(this).apply {
+                text = "$idx. ${c.name}"
+                textSize = 13.5f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#1C1917"))
+            }
+            nameCol.addView(numView)
+            item.addView(nameCol)
+
+            val phoneCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.END
+            }
+            val pView = TextView(this).apply {
+                text = c.phone
+                textSize = 13f
+                setTypeface(Typeface.MONOSPACE)
+                setTextColor(Color.parseColor("#44403C"))
+            }
+            phoneCol.addView(pView)
+
+            val tagView = TextView(this).apply {
+                text = if (isSent) "✓ ارسال شده" else "$op"
+                textSize = 10.5f
+                setTextColor(Color.parseColor(if (isSent) "#16A34A" else "#C25E34"))
+                setTypeface(null, Typeface.BOLD)
+            }
+            phoneCol.addView(tagView)
+            item.addView(phoneCol)
+
+            listContainer.addView(item)
+            idx++
+        }
+
+        scroll.addView(listContainer)
+
+        AlertDialog.Builder(this)
+            .setTitle("مخاطبین روز $currentDay ماه $mName (${byPhone.size} شماره)")
+            .setView(scroll)
+            .setPositiveButton("بستن", null)
+            .show()
     }
 
     private fun targetMd(): Int = currentMonth * 100 + currentDay
