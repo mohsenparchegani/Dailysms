@@ -1354,29 +1354,37 @@ class MainActivity : Activity() {
      * ۵) ۰۹۰۳ (۴ رقم ماه و روز)
      */
     private fun parseMd(name: String): Int? {
-        val s = latinDigits(name).trim()
+        val s = latinDigits(name)
 
-        // ۱) ۴ رقم سال در ابتدای نام (مثل 14050904 یا 1405/9/4 یا [1405/09/04] یا (14050904))
-        val m1 = Regex("""^[\[\(\{\s]*(\d{4})[/\-. ]?(\d{1,2})[/\-. ]?(\d{1,2})([\]\)\}\\s]|$)""").find(s)
+        // ۱) ۴ رقم سال + ۲ رقم ماه + ۲ رقم روز (پیوسته یا با جداکننده مثل 14050904 یا 1405/09/04 یا 1405-09-04 در هر جای نام)
+        val m1 = Regex("""(?:^|[^\d])(\d{4})[/\-. ]?(\d{2})[/\-. ]?(\d{2})(?!\d)""").find(s)
         if (m1 != null) {
             val mo = m1.groupValues[2].toIntOrNull() ?: return null
             val da = m1.groupValues[3].toIntOrNull() ?: return null
             if (mo in 1..12 && da in 1..31) return mo * 100 + da
         }
 
-        // ۲) ماه و روز با جداکننده در ابتدای نام بدون سال (مثل 09/04 یا 9/4 یا 09-04)
-        val m2 = Regex("""^[\[\(\{\s]*(\d{1,2})[/\-. ]+(\d{1,2})([\]\)\}\\s]|$)""").find(s)
+        // ۲) ۴ رقم سال با جداکننده و ماه یا روز ۱ یا ۲ رقمی (مثل 1405/9/4 یا 1405-9-04)
+        val m2 = Regex("""(?:^|[^\d])(\d{4})[/\-. ]+(\d{1,2})[/\-. ]+(\d{1,2})(?!\d)""").find(s)
         if (m2 != null) {
-            val mo = m2.groupValues[1].toIntOrNull() ?: return null
-            val da = m2.groupValues[2].toIntOrNull() ?: return null
+            val mo = m2.groupValues[2].toIntOrNull() ?: return null
+            val da = m2.groupValues[3].toIntOrNull() ?: return null
             if (mo in 1..12 && da in 1..31) return mo * 100 + da
         }
 
-        // ۳) ۴ رقم ماه و روز فشرده در ابتدای نام (مثل 0904 علی)
-        val m3 = Regex("""^[\[\(\{\s]*(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])([\]\)\}\\s]|$)""").find(s)
+        // ۳) ماه و روز با جداکننده بدون سال (مثل 09/04 یا 9/4 یا 09-04)
+        val m3 = Regex("""(?:^|[^\d])(\d{1,2})[/\-. ]+(\d{1,2})(?!\d)""").find(s)
         if (m3 != null) {
             val mo = m3.groupValues[1].toIntOrNull() ?: return null
             val da = m3.groupValues[2].toIntOrNull() ?: return null
+            if (mo in 1..12 && da in 1..31) return mo * 100 + da
+        }
+
+        // ۴) ۴ رقم ماه و روز فشرده (مثل 0904 یا حسن 0904)
+        val m4 = Regex("""(?:^|[^\d])(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)""").find(s)
+        if (m4 != null) {
+            val mo = m4.groupValues[1].toIntOrNull() ?: return null
+            val da = m4.groupValues[2].toIntOrNull() ?: return null
             return mo * 100 + da
         }
 
@@ -1393,13 +1401,27 @@ class MainActivity : Activity() {
     }
 
     private fun loadContacts(showToast: Boolean = false) {
-        if (!canReadContacts()) return
+        if (!canReadContacts()) {
+            ui.post {
+                if (::statusText.isInitialized) {
+                    statusText.text = "⚠️ دسترسی به مخاطبین داده نشده است. لطفاً روی «بروزرسانی مخاطبین» بزنید و دسترسی را تأیید کنید."
+                }
+                if (::totalCountBadge.isInitialized) {
+                    totalCountBadge.text = "⚠️ نیاز به دسترسی مخاطبین"
+                }
+                if (showToast) {
+                    requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 101)
+                }
+            }
+            return
+        }
         ui.post {
             statusText.text = "⏳ در حال خواندن مخاطبین دفترچه تلفن..."
         }
         Thread {
             val list = ArrayList<Contact>()
             var totalRead = 0
+            var withDate = 0
             try {
                 val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
                 val proj = arrayOf(
@@ -1416,6 +1438,7 @@ class MainActivity : Activity() {
                         val num = if (numIdx >= 0) c.getString(numIdx) ?: "" else ""
                         val md = parseMd(name)
                         if (md != null) {
+                            withDate++
                             val p = normPhone(num)
                             if (p != null) list.add(Contact(name, p, md))
                         }
@@ -1434,7 +1457,11 @@ class MainActivity : Activity() {
                     val md = targetMd()
                     val mName = if (currentMonth in 1..12) monthNames[currentMonth] else "$currentMonth"
                     val todayCount = list.count { it.md == md }
-                    Toast.makeText(this@MainActivity, "مخاطبین بروز شدند: $todayCount شماره برای $currentDay $mName", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        this@MainActivity,
+                        "بروزرسانی شد: $todayCount شماره برای $currentDay $mName (کل مخاطبین گوشی: $totalRead)",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }.start()
