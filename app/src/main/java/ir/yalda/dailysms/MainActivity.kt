@@ -23,24 +23,23 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.Spinner
-import android.widget.ArrayAdapter
 import android.widget.TextView
 import android.widget.Toast
 import java.util.Calendar
 
 /**
  * برنامه ارسال پیامک روزانه املاک یلدا
- * - طراحی مدرن، عمق‌دار و سه‌بعدی (3D Card & Floating Elevation)
- * - تقسیم هوشمند اپراتوری پیامک‌ها (همراه اول / ایرانسل / رایتل) با بالانس ۵۰/۵۰ جهت جلوگیری از مسدودی
- * - بانک ۱۴۶۰ پیامک آماده در ۴ دسته‌بندی با انتخاب ۱ لمسی
- * - نمایش تاریخ ثابت شمسی امروز
+ * - طراحی جدید با تم گرم سفالی و کرم (Warm Terracotta & Cream)
+ * - چیدمان مدرن با اسلایدر روزهای تقویم، کارت آمار مخاطبین و کادرهای ۲×۲ متن‌های روز
+ * - تقسیم هوشمند اپراتوری پیامک‌ها (همراه اول / ایرانسل) با بالانس ۵۰/۵۰ جهت جلوگیری از مسدودی
+ * - بانک ۱۴۶۰ پیامک آماده با انتخاب تک‌لمسی و قابلیت ویرایش
  */
 class MainActivity : Activity() {
 
@@ -56,10 +55,15 @@ class MainActivity : Activity() {
     private var contacts: List<Contact> = emptyList()
     private var sending = false
 
+    // ویوهای اصلی صفحه
     private lateinit var todayBadgeText: TextView
     private lateinit var targetDateView: TextView
+    private lateinit var targetRelationBadge: TextView
+    private lateinit var calendarStripContainer: LinearLayout
     private lateinit var totalCountBadge: TextView
     private lateinit var pendingCountBadge: TextView
+    private lateinit var sim1StatusText: TextView
+    private lateinit var sim2StatusText: TextView
     private lateinit var simSummaryText: TextView
     private lateinit var msgEdit: EditText
     private lateinit var charCounterText: TextView
@@ -69,6 +73,7 @@ class MainActivity : Activity() {
     private lateinit var statusText: TextView
     private lateinit var totalContactsReadView: TextView
 
+    // گزینه‌های ۲ در ۲ قالب‌های پیامک
     private val optionViews = ArrayList<LinearLayout>()
     private val optionRadioViews = ArrayList<TextView>()
     private val optionTextViews = ArrayList<TextView>()
@@ -80,7 +85,6 @@ class MainActivity : Activity() {
     private var currentDay: Int = 1
     private var todayKey: String = ""
     private var targetCal: Calendar = Calendar.getInstance()
-    private lateinit var targetRelationBadge: TextView
 
     private val requiredPerms = arrayOf(
         Manifest.permission.READ_CONTACTS,
@@ -90,9 +94,6 @@ class MainActivity : Activity() {
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
-    /**
-     * ایجاد Drawable با گوشه‌های گرد و استروک دلخواه
-     */
     private fun roundRect(bgColor: Int, radiusDp: Int, strokeWidthDp: Int = 0, strokeColor: Int = 0): GradientDrawable {
         return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
@@ -104,21 +105,17 @@ class MainActivity : Activity() {
         }
     }
 
-    /**
-     * ایجاد کارت سه‌بعدی و شناور (Elevated 3D Card) با عمق و سایه طبیعی
-     */
-    private fun create3DCard(
+    private fun createWarmCard(
         bgColor: Int = Color.WHITE,
         radiusDp: Int = 16,
-        elevationDp: Int = 6,
+        elevationDp: Int = 4,
         strokeWidthDp: Int = 1,
-        strokeColor: Int = Color.parseColor("#E2E8F0")
+        strokeColor: Int = Color.parseColor("#EBE5DC")
     ): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = roundRect(bgColor, radiusDp, strokeWidthDp, strokeColor)
             elevation = dp(elevationDp).toFloat()
-            translationZ = dp(elevationDp / 3).toFloat()
             clipToOutline = true
         }
     }
@@ -127,29 +124,25 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("dailysms", Context.MODE_PRIVATE)
 
-        // پس‌زمینه کلی ملایم و مدرن Slate جهت برجسته‌تر دیده شدن کارت‌های سه‌بعدی سفید
+        // پس‌زمینه کلی عاجی و کرم ملایم و گرم
         val scroll = ScrollView(this).apply {
-            setBackgroundColor(Color.parseColor("#F1F5F9"))
+            setBackgroundColor(Color.parseColor("#FAF8F5"))
             isFillViewport = true
         }
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_RTL
-            setPadding(dp(16), dp(18), dp(16), dp(32))
+            setPadding(dp(16), dp(16), dp(16), dp(28))
         }
 
-        // --- ۱. هدر شکیل سه‌بعدی با گرادیان سرمه‌ای-آبی عمیق ---
-        val headerCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.parseColor("#1D4ED8"), Color.parseColor("#2563EB"), Color.parseColor("#3B82F6"))
-            ).apply { cornerRadius = dp(20).toFloat() }
-            setPadding(dp(18), dp(18), dp(18), dp(18))
-            elevation = dp(10).toFloat()
-            translationZ = dp(3).toFloat()
-            clipToOutline = true
+        // =========================================================================
+        // ۱. هدر شیک با آیکون املاک یلدا و شعار برند
+        // =========================================================================
+        val headerCard = createWarmCard(Color.WHITE, 18, 4, 1, Color.parseColor("#EBE5DC")).apply {
+            setPadding(dp(16), dp(16), dp(16), dp(14))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            layoutParams = lp
         }
 
         val headerTopRow = LinearLayout(this).apply {
@@ -159,94 +152,148 @@ class MainActivity : Activity() {
             layoutParams = lp
         }
 
-        val appTitle = TextView(this).apply {
-            text = "✨ پیامک هوشمند املاک یلدا"
-            textSize = 20f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE)
+        // کادر آیکون خانه در سمت راست
+        val brandIconBox = TextView(this).apply {
+            text = "🏠"
+            textSize = 22f
+            gravity = Gravity.CENTER
+            background = roundRect(Color.parseColor("#FFF2EB"), 12, 1, Color.parseColor("#FCD7C6"))
+            val lp = LinearLayout.LayoutParams(dp(44), dp(44))
+            lp.marginStart = dp(10)
+            layoutParams = lp
+        }
+        headerTopRow.addView(brandIconBox)
+
+        // عنوان و زیرعنوان برند املاک یلدا
+        val brandTitlesCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             layoutParams = lp
         }
-        headerTopRow.addView(appTitle)
+
+        val appTitle = TextView(this).apply {
+            text = "املاک یلدا"
+            textSize = 20f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1C1917"))
+        }
+        brandTitlesCol.addView(appTitle)
+
+        val appSubtitle = TextView(this).apply {
+            text = "ارتباط امروز، مشتری فردا"
+            textSize = 12.5f
+            setTextColor(Color.parseColor("#78716C"))
+            setPadding(0, dp(2), 0, 0)
+        }
+        brandTitlesCol.addView(appSubtitle)
+        headerTopRow.addView(brandTitlesCol)
 
         val versionBadge = TextView(this).apply {
-            text = "نسخه ۱.۵ سه‌بعدی"
+            text = "نسخه ۱.۸"
             textSize = 11f
-            setTextColor(Color.WHITE)
+            setTextColor(Color.parseColor("#C25E34"))
             setTypeface(null, Typeface.BOLD)
-            background = roundRect(Color.parseColor("#35FFFFFF"), 10, 1, Color.parseColor("#70FFFFFF"))
+            background = roundRect(Color.parseColor("#FFF2EB"), 10, 1, Color.parseColor("#FCD7C6"))
             setPadding(dp(8), dp(4), dp(8), dp(4))
         }
         headerTopRow.addView(versionBadge)
         headerCard.addView(headerTopRow)
 
         todayBadgeText = TextView(this).apply {
-            textSize = 14f
-            setTextColor(Color.parseColor("#DBEAFE"))
-            setPadding(0, dp(6), 0, 0)
+            textSize = 12.5f
+            setTextColor(Color.parseColor("#8C7A6B"))
+            setPadding(0, dp(10), 0, 0)
         }
         headerCard.addView(todayBadgeText)
         root.addView(headerCard)
 
-        // --- ۲. کارت تاریخ ارسال پیامک؛ پیش‌فرض یک روز قبل‌تر از امروز ---
-        val dateCard = create3DCard(Color.WHITE, 16, 5).apply {
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+        // =========================================================================
+        // ۲. کارت اسلایدر تقویم و انتخاب روز ارسال پیامک‌ها
+        // =========================================================================
+        val dateCard = createWarmCard(Color.WHITE, 18, 4, 1, Color.parseColor("#EBE5DC")).apply {
+            setPadding(dp(16), dp(16), dp(16), dp(16))
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             lp.topMargin = dp(14)
             layoutParams = lp
         }
 
-        val dateLabel = TextView(this).apply {
-            text = "📅 تاریخ ارسال پیامک‌ها"
-            textSize = 13f
-            setTextColor(Color.parseColor("#64748B"))
-            setTypeface(null, Typeface.BOLD)
+        val dateHeaderRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            layoutParams = lp
         }
-        dateCard.addView(dateLabel)
+
+        val dateLabel = TextView(this).apply {
+            text = "📅 تقویم ارسال پیامک"
+            textSize = 14f
+            setTextColor(Color.parseColor("#292524"))
+            setTypeface(null, Typeface.BOLD)
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = lp
+        }
+        dateHeaderRow.addView(dateLabel)
+
+        targetRelationBadge = TextView(this).apply {
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#C25E34"))
+            setTypeface(null, Typeface.BOLD)
+            setPadding(dp(8), dp(3), dp(8), dp(3))
+            background = roundRect(Color.parseColor("#FFF2EB"), 8, 1, Color.parseColor("#FCD7C6"))
+        }
+        dateHeaderRow.addView(targetRelationBadge)
+        dateCard.addView(dateHeaderRow)
 
         targetDateView = TextView(this).apply {
-            textSize = 16f
-            setTextColor(Color.parseColor("#0F172A"))
+            textSize = 15f
+            setTextColor(Color.parseColor("#1C1917"))
             setTypeface(null, Typeface.BOLD)
-            setPadding(0, dp(4), 0, 0)
+            setPadding(0, dp(8), 0, dp(4))
         }
         dateCard.addView(targetDateView)
 
-        targetRelationBadge = TextView(this).apply {
-            textSize = 12f
-            setTextColor(Color.parseColor("#2563EB"))
-            setTypeface(null, Typeface.BOLD)
-            setPadding(dp(8), dp(3), dp(8), dp(3))
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#EFF6FF"))
-                cornerRadius = dp(6).toFloat()
-            }
-            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            lp.topMargin = dp(4)
+        // ردیف کپسول‌های روزهای هفته (ش، ی، د، س، چ، پ، ج)
+        calendarStripContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = dp(8)
             layoutParams = lp
         }
-        dateCard.addView(targetRelationBadge)
+        dateCard.addView(calendarStripContainer)
 
+        val calQuote = TextView(this).apply {
+            text = "☀️ روز خوبی برای ارتباط مؤثر با مشتریان است"
+            textSize = 12f
+            setTextColor(Color.parseColor("#78716C"))
+            setPadding(0, dp(8), 0, 0)
+        }
+        dateCard.addView(calQuote)
+
+        // دکمه‌های سریع تغییر روز
         val quickShiftRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            lp.topMargin = dp(10)
+            lp.topMargin = dp(12)
             layoutParams = lp
         }
 
-        fun dateButton(label: String, color: String, weight: Float = 1f, action: () -> Unit): TextView {
+        fun warmDateBtn(label: String, isPrimary: Boolean = false, weight: Float = 1f, action: () -> Unit): TextView {
             return TextView(this).apply {
                 text = label
                 textSize = 12f
-                setTextColor(if (color == "#2563EB") Color.WHITE else Color.parseColor("#1E293B"))
+                setTextColor(if (isPrimary) Color.WHITE else Color.parseColor("#292524"))
                 setTypeface(null, Typeface.BOLD)
                 gravity = Gravity.CENTER
                 setPadding(dp(4), dp(8), dp(4), dp(8))
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor(color))
-                    cornerRadius = dp(8).toFloat()
-                    if (color != "#2563EB") setStroke(dp(1), Color.parseColor("#CBD5E1"))
+                background = if (isPrimary) {
+                    GradientDrawable(
+                        GradientDrawable.Orientation.TL_BR,
+                        intArrayOf(Color.parseColor("#C85A32"), Color.parseColor("#A83E1B"))
+                    ).apply { cornerRadius = dp(10).toFloat() }
+                } else {
+                    roundRect(Color.parseColor("#FAF7F2"), 10, 1, Color.parseColor("#E5DDD0"))
                 }
                 val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, weight)
                 lp.marginEnd = dp(4)
@@ -255,34 +302,30 @@ class MainActivity : Activity() {
             }
         }
 
-        quickShiftRow.addView(dateButton("◀ روز قبل", "#F8FAFC") {
+        quickShiftRow.addView(warmDateBtn("◀ دیروز") {
             targetCal.add(Calendar.DAY_OF_MONTH, -1)
             syncDateFromTargetCal()
         })
-        quickShiftRow.addView(dateButton("⚡ یک روز قبل", "#2563EB", 1.2f) {
+        quickShiftRow.addView(warmDateBtn("⚡ ۱ روز قبل (پیش‌فرض)", true, 1.3f) {
             resetToYesterdayDefault(true)
         })
-        quickShiftRow.addView(dateButton("امروز", "#F8FAFC", 0.8f) {
+        quickShiftRow.addView(warmDateBtn("امروز", false, 0.9f) {
             resetToToday(true)
         })
-        quickShiftRow.addView(dateButton("روز بعد ▶", "#F8FAFC") {
+        quickShiftRow.addView(warmDateBtn("فردا ▶") {
             targetCal.add(Calendar.DAY_OF_MONTH, 1)
             syncDateFromTargetCal()
         })
         dateCard.addView(quickShiftRow)
 
         val changeDateBtn = TextView(this).apply {
-            text = "✏️ انتخاب تاریخ دلخواه"
+            text = "✏️ انتخاب تاریخ دلخواه از تقویم"
             textSize = 12f
-            setTextColor(Color.parseColor("#1D4ED8"))
+            setTextColor(Color.parseColor("#A8421F"))
             setTypeface(null, Typeface.BOLD)
             gravity = Gravity.CENTER
-            setPadding(dp(12), dp(7), dp(12), dp(7))
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#EFF6FF"))
-                cornerRadius = dp(8).toFloat()
-                setStroke(dp(1), Color.parseColor("#BFDBFE"))
-            }
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = roundRect(Color.parseColor("#FFF7ED"), 10, 1, Color.parseColor("#FED7AA"))
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             lp.topMargin = dp(8)
             layoutParams = lp
@@ -291,161 +334,271 @@ class MainActivity : Activity() {
         dateCard.addView(changeDateBtn)
         root.addView(dateCard)
 
-        // --- ۳. ردیف آمار سه‌بعدی مخاطبین (دو کپسول برجسته مدرن) ---
-        val statsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            lp.topMargin = dp(12)
-            layoutParams = lp
-        }
-
-        totalCountBadge = TextView(this).apply {
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#1E40AF"))
-            background = roundRect(Color.parseColor("#EFF6FF"), 14, 1, Color.parseColor("#BFDBFE"))
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            gravity = Gravity.CENTER
-            elevation = dp(4).toFloat()
-            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            lp.marginEnd = dp(6)
-            layoutParams = lp
-            text = "👥 مخاطبین امروز: ۰ نفر"
-        }
-        statsRow.addView(totalCountBadge)
-
-        pendingCountBadge = TextView(this).apply {
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#065F46"))
-            background = roundRect(Color.parseColor("#ECFDF5"), 14, 1, Color.parseColor("#A7F3D0"))
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            gravity = Gravity.CENTER
-            elevation = dp(4).toFloat()
-            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            lp.marginStart = dp(6)
-            layoutParams = lp
-            text = "⏳ مانده برای ارسال: ۰ نفر"
-        }
-        statsRow.addView(pendingCountBadge)
-        root.addView(statsRow)
-
-        // --- ۴. کارت سه‌بعدی وضعیت سیم‌کارت‌ها و تقسیم هوشمند اپراتوری ---
-        val simCard = create3DCard(Color.WHITE, 16, 5).apply {
+        // =========================================================================
+        // ۳. کارت برجسته آمار مخاطبین (با تم آرام مریم‌گلی/زیتونی طبیعی)
+        // =========================================================================
+        val statsCard = createWarmCard(Color.parseColor("#F2F7F2"), 18, 3, 1, Color.parseColor("#D4E6D6")).apply {
             setPadding(dp(16), dp(14), dp(16), dp(14))
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             lp.topMargin = dp(14)
             layoutParams = lp
         }
 
-        val simHeader = TextView(this).apply {
-            text = "📶 تقسیم هوشمند اپراتوری سیم‌کارت‌ها (ضد مسدودی)"
-            textSize = 14f
+        val statsTopRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            layoutParams = lp
+        }
+
+        val statsIconBox = TextView(this).apply {
+            text = "👥"
+            textSize = 20f
+            gravity = Gravity.CENTER
+            background = roundRect(Color.parseColor("#E0EFE2"), 14, 1, Color.parseColor("#BFDEBF"))
+            val lp = LinearLayout.LayoutParams(dp(44), dp(44))
+            lp.marginStart = dp(12)
+            layoutParams = lp
+        }
+        statsTopRow.addView(statsIconBox)
+
+        val statsTextCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = lp
+        }
+
+        totalCountBadge = TextView(this).apply {
+            textSize = 16f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#1E293B"))
+            setTextColor(Color.parseColor("#1B4D2E"))
+            text = "۰ مخاطب آماده ارسال"
         }
-        simCard.addView(simHeader)
+        statsTextCol.addView(totalCountBadge)
 
-        simSummaryText = TextView(this).apply {
-            textSize = 13f
-            setTextColor(Color.parseColor("#475569"))
-            setPadding(0, dp(6), 0, 0)
-            text = "در حال شناسایی اپراتور سیم‌کارت‌های فعال..."
+        val statsSubtitle = TextView(this).apply {
+            text = "مشتریان امروز، فرصت‌های فردا هستند."
+            textSize = 12f
+            setTextColor(Color.parseColor("#446B4F"))
+            setPadding(0, dp(2), 0, 0)
         }
-        simCard.addView(simSummaryText)
-        root.addView(simCard)
+        statsTextCol.addView(statsSubtitle)
+        statsTopRow.addView(statsTextCol)
 
-        // --- ۵. کارت سه‌بعدی ۴ گزینه متن پیشنهادی روز (کاشی‌های لمسی برجسته) ---
-        val optionsCard = create3DCard(Color.WHITE, 18, 6).apply {
-            setPadding(dp(16), dp(16), dp(16), dp(16))
+        pendingCountBadge = TextView(this).apply {
+            text = "● آماده ارسال"
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#2E6A3F"))
+            background = roundRect(Color.parseColor("#D8EBD9"), 8, 1, Color.parseColor("#B4D9B6"))
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+        }
+        statsTopRow.addView(pendingCountBadge)
+        statsCard.addView(statsTopRow)
+        root.addView(statsCard)
+
+        // =========================================================================
+        // ۴. ویجت دو ستونه وضعیت سیم‌کارت‌ها (همراه اول و ایرانسل)
+        // =========================================================================
+        val simSection = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             lp.topMargin = dp(14)
             layoutParams = lp
         }
 
-        val optionsHeader = TextView(this).apply {
-            text = "🎯 انتخاب متن روز از بین ۴ گزینه (یکی را لمس کنید):"
-            textSize = 14f
+        val simHeaderLabel = TextView(this).apply {
+            text = "📶 وضعیت سیم‌کارت‌ها (تقسیم هوشمند ۵۰/۵۰)"
+            textSize = 13.5f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#1E293B"))
+            setTextColor(Color.parseColor("#292524"))
             setPadding(0, 0, 0, dp(6))
         }
-        optionsCard.addView(optionsHeader)
+        simSection.addView(simHeaderLabel)
 
-        val optionTitles = listOf(
-            "📅 گزینه ۱: مناسبت و تقویم (شمسی / قمری / میلادی)",
-            "🏢 گزینه ۲: خرید و فروش ملک (۲۰ سال سابقه و اکازیون)",
-            "⚖️ گزینه ۳: کد رهگیری رسمی و نظارت وکیل دادگستری",
-            "🔑 گزینه ۴: رهن، اجاره، سرمایه‌گذاری و مشاوره تخصصی"
+        val simRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            layoutParams = lp
+        }
+
+        // کارت سیم ۱
+        val sim1Card = createWarmCard(Color.WHITE, 14, 3, 1, Color.parseColor("#EBE5DC")).apply {
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            lp.marginEnd = dp(6)
+            layoutParams = lp
+        }
+        val sim1Title = TextView(this).apply {
+            text = "📱 سیم‌کارت ۱"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#78716C"))
+        }
+        sim1Card.addView(sim1Title)
+        sim1StatusText = TextView(this).apply {
+            text = "همراه اول • فعال"
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1C1917"))
+            setPadding(0, dp(2), 0, 0)
+        }
+        sim1Card.addView(sim1StatusText)
+        simRow.addView(sim1Card)
+
+        // کارت سیم ۲
+        val sim2Card = createWarmCard(Color.WHITE, 14, 3, 1, Color.parseColor("#EBE5DC")).apply {
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            lp.marginStart = dp(6)
+            layoutParams = lp
+        }
+        val sim2Title = TextView(this).apply {
+            text = "📱 سیم‌کارت ۲"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#78716C"))
+        }
+        sim2Card.addView(sim2Title)
+        sim2StatusText = TextView(this).apply {
+            text = "ایرانسل • فعال"
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1C1917"))
+            setPadding(0, dp(2), 0, 0)
+        }
+        sim2Card.addView(sim2StatusText)
+        simRow.addView(sim2Card)
+        simSection.addView(simRow)
+
+        simSummaryText = TextView(this).apply {
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#78716C"))
+            setPadding(0, dp(6), 0, 0)
+            text = "تقسیم خودکار نیمی از پیامک‌ها با همراه اول و نیمی با ایرانسل جهت جلوگیری از مسدودی خط"
+        }
+        simSection.addView(simSummaryText)
+        root.addView(simSection)
+
+        // =========================================================================
+        // ۵. بخش ۲×۲ متن‌های پیشنهادی روز (۴ قالب کارت مدرن)
+        // =========================================================================
+        val optionsSection = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.topMargin = dp(16)
+            layoutParams = lp
+        }
+
+        val optionsHeader = TextView(this).apply {
+            text = "📋 متن‌های پیشنهادی روز (برای انتخاب یکی را لمس کنید):"
+            textSize = 13.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#292524"))
+            setPadding(0, 0, 0, dp(8))
+        }
+        optionsSection.addView(optionsHeader)
+
+        val optionSpecs = listOf(
+            Triple("🏠 معرفی ملک ویژه", "فرصت‌های مناسب خرید و اجاره", "#C25E34"),
+            Triple("🤝 پیگیری مشتری", "در ارتباط با درخواست شما", "#2563EB"),
+            Triple("💎 پیشنهاد ویژه", "تخفیف‌ها و شرایط سرمایه‌گذاری", "#7C3AED"),
+            Triple("💙 پیام مناسبتی", "با شما در تمام روزها و اعیاد", "#059669")
         )
 
-        for (i in 0 until 4) {
-            val optItem = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                background = roundRect(Color.parseColor("#F8FAFC"), 12, 1, Color.parseColor("#E2E8F0"))
-                setPadding(dp(14), dp(12), dp(14), dp(12))
-                elevation = dp(3).toFloat()
-                clipToOutline = true
+        // ردیف اول: گزینه‌های ۰ و ۱
+        // ردیف دوم: گزینه‌های ۲ و ۳
+        val gridRows = listOf(
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                layoutParams = lp
+            },
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
                 val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 lp.topMargin = dp(8)
                 layoutParams = lp
             }
+        )
 
-            val topRow = LinearLayout(this).apply {
+        for (i in 0 until 4) {
+            val (title, sub, accentColor) = optionSpecs[i]
+            val parentRow = if (i < 2) gridRows[0] else gridRows[1]
+
+            val optCard = createWarmCard(Color.WHITE, 14, 3, 1, Color.parseColor("#EBE5DC")).apply {
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                if (i % 2 == 0) lp.marginEnd = dp(4) else lp.marginStart = dp(4)
+                layoutParams = lp
+            }
+
+            val cardTopRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 layoutParams = lp
             }
 
-            val titleView = TextView(this).apply {
-                text = optionTitles[i]
+            val cardTitle = TextView(this).apply {
+                text = title
                 textSize = 12f
                 setTypeface(null, Typeface.BOLD)
-                setTextColor(Color.parseColor("#2563EB"))
+                setTextColor(Color.parseColor(accentColor))
                 val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 layoutParams = lp
             }
-            topRow.addView(titleView)
+            cardTopRow.addView(cardTitle)
 
-            val radioView = TextView(this).apply {
+            val radioBadge = TextView(this).apply {
                 text = if (i == 0) "✓ انتخابی" else "انتخاب"
-                textSize = 11f
+                textSize = 10f
                 setTypeface(null, Typeface.BOLD)
-                setTextColor(if (i == 0) Color.parseColor("#1D4ED8") else Color.parseColor("#64748B"))
+                setTextColor(if (i == 0) Color.parseColor("#C25E34") else Color.parseColor("#78716C"))
                 background = roundRect(
-                    if (i == 0) Color.parseColor("#DBEAFE") else Color.parseColor("#E2E8F0"),
-                    8
+                    if (i == 0) Color.parseColor("#FFF2EB") else Color.parseColor("#F5F5F4"),
+                    6
                 )
-                setPadding(dp(8), dp(3), dp(8), dp(3))
+                setPadding(dp(6), dp(2), dp(6), dp(2))
             }
-            topRow.addView(radioView)
-            optItem.addView(topRow)
+            cardTopRow.addView(radioBadge)
+            optCard.addView(cardTopRow)
 
-            val bodyView = TextView(this).apply {
-                textSize = 13.5f
-                setTextColor(Color.parseColor("#334155"))
+            val cardSubtitle = TextView(this).apply {
+                text = sub
+                textSize = 11f
+                setTextColor(Color.parseColor("#78716C"))
+                setPadding(0, dp(4), 0, 0)
+            }
+            optCard.addView(cardSubtitle)
+
+            val previewBody = TextView(this).apply {
+                textSize = 11.5f
+                setTextColor(Color.parseColor("#44403C"))
                 setPadding(0, dp(6), 0, 0)
+                maxLines = 2
                 text = "در حال بارگذاری..."
             }
-            optItem.addView(bodyView)
+            optCard.addView(previewBody)
 
             val optIndex = i
-            optItem.setOnClickListener {
-                selectOption(optIndex)
-            }
+            optCard.setOnClickListener { selectOption(optIndex) }
 
-            optionViews.add(optItem)
-            optionRadioViews.add(radioView)
-            optionTextViews.add(bodyView)
-            optionsCard.addView(optItem)
+            optionViews.add(optCard)
+            optionRadioViews.add(radioBadge)
+            optionTextViews.add(previewBody)
+            parentRow.addView(optCard)
         }
 
-        root.addView(optionsCard)
+        optionsSection.addView(gridRows[0])
+        optionsSection.addView(gridRows[1])
+        root.addView(optionsSection)
 
-        // --- ۶. کادر سه‌بعدی متن پیامک (نمایش متن روز + قابلیت ویرایش) ---
-        val msgCard = create3DCard(Color.WHITE, 18, 6).apply {
-            setPadding(dp(16), dp(16), dp(16), dp(16))
+        // =========================================================================
+        // ۶. کادر ویرایشگر متن پیامک نهایی (با پس‌زمینه گرم و بازنشانی)
+        // =========================================================================
+        val msgCard = createWarmCard(Color.WHITE, 16, 4, 1, Color.parseColor("#EBE5DC")).apply {
+            setPadding(dp(16), dp(14), dp(16), dp(14))
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             lp.topMargin = dp(14)
             layoutParams = lp
@@ -459,10 +612,10 @@ class MainActivity : Activity() {
         }
 
         val msgLabel = TextView(this).apply {
-            text = "✉️ متن نهایی پیامک امروز (قابل ویرایش):"
-            textSize = 14f
+            text = "✉️ متن پیامک ارسالی (قابل ویرایش):"
+            textSize = 13.5f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#1E293B"))
+            setTextColor(Color.parseColor("#292524"))
             val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             layoutParams = lp
         }
@@ -471,9 +624,8 @@ class MainActivity : Activity() {
         resetMsgBtn = Button(this).apply {
             text = "🔄 بازنشانی متن"
             textSize = 11f
-            setTextColor(Color.parseColor("#1D4ED8"))
-            background = roundRect(Color.parseColor("#EFF6FF"), 10, 1, Color.parseColor("#BFDBFE"))
-            elevation = dp(2).toFloat()
+            setTextColor(Color.parseColor("#A8421F"))
+            background = roundRect(Color.parseColor("#FFF7ED"), 8, 1, Color.parseColor("#FED7AA"))
             setPadding(dp(10), dp(4), dp(10), dp(4))
             setOnClickListener {
                 val defaultOpt = if (selectedOptionIndex in currentDailyOptions.indices) {
@@ -483,32 +635,32 @@ class MainActivity : Activity() {
                 }
                 msgEdit.setText(defaultOpt)
                 prefs.edit().putString("custom_msg_$todayKey", defaultOpt).apply()
-                Toast.makeText(this@MainActivity, "متن گزینه انتخابی بازنشانی شد", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, "متن به قالب انتخابی بازنشانی شد", Toast.LENGTH_SHORT).show()
             }
         }
         msgHeaderRow.addView(resetMsgBtn)
         msgCard.addView(msgHeaderRow)
 
         msgEdit = EditText(this).apply {
-            minLines = 4
+            minLines = 3
             gravity = Gravity.TOP or Gravity.START
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            background = roundRect(Color.parseColor("#F8FAFC"), 12, 1, Color.parseColor("#CBD5E1"))
-            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = roundRect(Color.parseColor("#FAF8F5"), 12, 1, Color.parseColor("#E7E0D6"))
+            setPadding(dp(12), dp(12), dp(12), dp(12))
             hint = "متن پیامک امروز..."
-            textSize = 15f
-            setTextColor(Color.parseColor("#0F172A"))
+            textSize = 14.5f
+            setTextColor(Color.parseColor("#1C1917"))
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            lp.topMargin = dp(10)
+            lp.topMargin = dp(8)
             layoutParams = lp
         }
 
         charCounterText = TextView(this).apply {
-            textSize = 12f
-            setTextColor(Color.parseColor("#64748B"))
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#78716C"))
             gravity = Gravity.START
             setPadding(0, dp(6), 0, 0)
-            text = "تعداد کاراکتر: ۰ / ۷۰ (۱ پیامک)"
+            text = "تعداد کاراکتر: ۰ / ۷۰ (۱ پیامک فارسی)"
         }
 
         msgEdit.addTextChangedListener(object : TextWatcher {
@@ -521,7 +673,7 @@ class MainActivity : Activity() {
                 if (len > 70) {
                     charCounterText.setTextColor(Color.parseColor("#DC2626"))
                 } else {
-                    charCounterText.setTextColor(Color.parseColor("#64748B"))
+                    charCounterText.setTextColor(Color.parseColor("#78716C"))
                 }
             }
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -532,18 +684,19 @@ class MainActivity : Activity() {
         msgCard.addView(charCounterText)
         root.addView(msgCard)
 
-        // --- ۷. دکمه سه‌بعدی و مدرن ارسال هوشمند پیامک‌ها ---
+        // =========================================================================
+        // ۷. دکمه ارگونومیک و بزرگ ارسال پیامک با رنگ سفالی گرم
+        // =========================================================================
         sendBtn = Button(this).apply {
-            text = "🚀 ارسال هوشمند پیامک‌های امروز"
+            text = "✈️ ارسال پیامک به مخاطبین"
             textSize = 16f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.WHITE)
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.parseColor("#2563EB"), Color.parseColor("#1D4ED8"))
+                intArrayOf(Color.parseColor("#C85A32"), Color.parseColor("#A83E1B"))
             ).apply { cornerRadius = dp(16).toFloat() }
-            elevation = dp(10).toFloat()
-            translationZ = dp(4).toFloat()
+            elevation = dp(8).toFloat()
             setOnClickListener { onSendClicked() }
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56))
             lp.topMargin = dp(18)
@@ -555,26 +708,36 @@ class MainActivity : Activity() {
             isIndeterminate = false
             visibility = View.GONE
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(10))
-            lp.topMargin = dp(14)
+            lp.topMargin = dp(12)
             layoutParams = lp
         }
         root.addView(progressBar)
 
         statusText = TextView(this).apply {
-            textSize = 14f
-            setTextColor(Color.parseColor("#475569"))
+            textSize = 13f
+            setTextColor(Color.parseColor("#57534E"))
             gravity = Gravity.CENTER
-            setPadding(0, dp(10), 0, dp(4))
+            setPadding(0, dp(8), 0, dp(4))
         }
         root.addView(statusText)
 
         totalContactsReadView = TextView(this).apply {
-            textSize = 12f
-            setTextColor(Color.parseColor("#94A3B8"))
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#A8A29E"))
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, dp(8))
+            setPadding(0, 0, 0, dp(6))
         }
         root.addView(totalContactsReadView)
+
+        // پاورقی اطمینان برند
+        val footerText = TextView(this).apply {
+            text = "✨ اعتماد شما، سرمایه ماست — املاک یلدا"
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#A8A29E"))
+            gravity = Gravity.CENTER
+            setPadding(0, dp(8), 0, dp(8))
+        }
+        root.addView(footerText)
 
         scroll.addView(root)
         setContentView(scroll)
@@ -645,28 +808,38 @@ class MainActivity : Activity() {
     }
 
     private fun resetToYesterdayDefault(showToast: Boolean = false) {
-        targetCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, -1) }
+        targetCal = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_MONTH, -1)
+        }
         syncDateFromTargetCal()
-        if (showToast) Toast.makeText(this, "تاریخ ارسال روی یک روز قبل‌تر تنظیم شد.", Toast.LENGTH_SHORT).show()
+        if (showToast) {
+            val mName = if (currentMonth in 1..12) monthNames[currentMonth] else "$currentMonth"
+            Toast.makeText(this, "تاریخ پیش‌فرض (یک روز قبل): $currentDay $mName", Toast.LENGTH_SHORT).show()
+        }
     }
 
-    private fun resetToToday(showToast: Boolean = true) {
+    private fun resetToToday(showToast: Boolean = false) {
         targetCal = Calendar.getInstance()
         syncDateFromTargetCal()
-        if (showToast) Toast.makeText(this, "تاریخ ارسال روی امروز تنظیم شد.", Toast.LENGTH_SHORT).show()
+        if (showToast) {
+            val mName = if (currentMonth in 1..12) monthNames[currentMonth] else "$currentMonth"
+            Toast.makeText(this, "تاریخ روی امروز تنظیم شد: $currentDay $mName", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun syncDateFromTargetCal() {
-        val j = gregorianToJalali(
+        val jy = gregorianToJalali(
             targetCal.get(Calendar.YEAR),
             targetCal.get(Calendar.MONTH) + 1,
             targetCal.get(Calendar.DAY_OF_MONTH)
         )
-        currentYear = j[0]
-        currentMonth = j[1]
-        currentDay = j[2]
-        todayKey = String.format("%04d-%02d-%02d", currentYear, currentMonth, currentDay)
+        currentYear = jy[0]
+        currentMonth = jy[1]
+        currentDay = jy[2]
+        todayKey = String.format("%02d%02d", currentMonth, currentDay)
+
         updateTargetDateLabel()
+        rebuildCalendarStrip()
         loadOptions()
         refresh()
     }
@@ -681,95 +854,191 @@ class MainActivity : Activity() {
         val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, -1) }
         val yesterdayJ = gregorianToJalali(yesterday.get(Calendar.YEAR), yesterday.get(Calendar.MONTH) + 1, yesterday.get(Calendar.DAY_OF_MONTH))
         targetRelationBadge.text = when {
-            currentYear == yesterdayJ[0] && currentMonth == yesterdayJ[1] && currentDay == yesterdayJ[2] -> "⚡ پیش‌فرض: یک روز قبل‌تر از امروز"
+            currentYear == yesterdayJ[0] && currentMonth == yesterdayJ[1] && currentDay == yesterdayJ[2] -> "⚡ پیش‌فرض: یک روز قبل"
             currentYear == todayJ[0] && currentMonth == todayJ[1] && currentDay == todayJ[2] -> "📌 تاریخ امروز"
             else -> "📅 تاریخ انتخابی"
+        }
+    }
+
+    /**
+     * بازسازی نوار افقی روزهای تقویم (مشابه اسکرین‌شات ارسالی)
+     */
+    private fun rebuildCalendarStrip() {
+        if (!::calendarStripContainer.isInitialized) return
+        calendarStripContainer.removeAllViews()
+
+        // ایجاد ستون‌های ۷ روز هفته با مرکزیت روز فعال
+        val startCal = (targetCal.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, -3) }
+        for (i in 0 until 7) {
+            val c = (startCal.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, i) }
+            val cJ = gregorianToJalali(c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH))
+            val isTarget = (cJ[1] == currentMonth && cJ[2] == currentDay)
+
+            val dayCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                layoutParams = lp
+            }
+
+            val weekDayLetter = when (c.get(Calendar.DAY_OF_WEEK)) {
+                Calendar.SATURDAY -> "ش"
+                Calendar.SUNDAY -> "ی"
+                Calendar.MONDAY -> "د"
+                Calendar.TUESDAY -> "س"
+                Calendar.WEDNESDAY -> "چ"
+                Calendar.THURSDAY -> "پ"
+                Calendar.FRIDAY -> "ج"
+                else -> ""
+            }
+
+            val letterView = TextView(this).apply {
+                text = weekDayLetter
+                textSize = 11f
+                setTextColor(if (isTarget) Color.parseColor("#C25E34") else Color.parseColor("#A8A29E"))
+                setTypeface(null, if (isTarget) Typeface.BOLD else Typeface.NORMAL)
+            }
+            dayCol.addView(letterView)
+
+            val numPill = TextView(this).apply {
+                text = "${cJ[2]}"
+                textSize = 12.5f
+                setTypeface(null, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                if (isTarget) {
+                    setTextColor(Color.WHITE)
+                    background = GradientDrawable(
+                        GradientDrawable.Orientation.TL_BR,
+                        intArrayOf(Color.parseColor("#C85A32"), Color.parseColor("#A83E1B"))
+                    ).apply { cornerRadius = dp(10).toFloat() }
+                } else {
+                    setTextColor(Color.parseColor("#292524"))
+                    background = roundRect(Color.parseColor("#FAF7F2"), 8, 1, Color.parseColor("#E7DFD4"))
+                }
+                val lp = LinearLayout.LayoutParams(dp(32), dp(32))
+                lp.topMargin = dp(4)
+                layoutParams = lp
+            }
+            dayCol.addView(numPill)
+
+            dayCol.setOnClickListener {
+                targetCal = c
+                syncDateFromTargetCal()
+            }
+            calendarStripContainer.addView(dayCol)
         }
     }
 
     private fun showDatePickerDialog() {
         val dialogView = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(16), dp(20), dp(16))
+            setPadding(dp(20), dp(16), dp(20), dp(8))
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
         }
-        val hint = TextView(this).apply {
-            text = "روز و ماه مورد نظر را برای ارسال به مخاطبین انتخاب کنید:"
+
+        val prompt = TextView(this).apply {
+            text = "روز و ماه مورد نظر جهت ارسال پیامک را انتخاب کنید:"
             textSize = 14f
-            setTextColor(Color.parseColor("#334155"))
+            setTextColor(Color.parseColor("#1C1917"))
+            setTypeface(null, Typeface.BOLD)
             setPadding(0, 0, 0, dp(12))
         }
-        dialogView.addView(hint)
-        val pickersRow = LinearLayout(this).apply {
+        dialogView.addView(prompt)
+
+        val spinRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        val monthSpinner = Spinner(this).apply {
-            val adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, monthNames.drop(1).toTypedArray())
-            this.adapter = adapter
-            setSelection((currentMonth - 1).coerceIn(0, 11))
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f)
-        }
-        val daySpinner = Spinner(this).apply {
-            val adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, (1..31).map { "$it" }.toTypedArray())
-            this.adapter = adapter
-            setSelection((currentDay - 1).coerceIn(0, 30))
-            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            lp.marginStart = dp(10)
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             layoutParams = lp
         }
-        pickersRow.addView(monthSpinner)
-        pickersRow.addView(daySpinner)
-        dialogView.addView(pickersRow)
+
+        val daySpinner = Spinner(this).apply {
+            val daysList = (1..31).map { "$it" }
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, daysList)
+            setSelection(currentDay - 1)
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            lp.marginEnd = dp(6)
+            layoutParams = lp
+        }
+        spinRow.addView(daySpinner)
+
+        val monthSpinner = Spinner(this).apply {
+            val monthsList = (1..12).map { monthNames[it] }
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, monthsList)
+            setSelection(currentMonth - 1)
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            lp.marginStart = dp(6)
+            layoutParams = lp
+        }
+        spinRow.addView(monthSpinner)
+        dialogView.addView(spinRow)
+
         AlertDialog.Builder(this)
-            .setTitle("📅 تنظیم تاریخ ارسال")
+            .setTitle("انتخاب تاریخ ارسال")
             .setView(dialogView)
             .setPositiveButton("تأیید و اعمال") { _, _ ->
-                val month = monthSpinner.selectedItemPosition + 1
-                val day = daySpinner.selectedItemPosition + 1
-                val g = jalaliToGregorian(currentYear, month, day)
-                targetCal = Calendar.getInstance().apply { set(g[0], g[1] - 1, g[2]) }
+                val chosenDay = daySpinner.selectedItemPosition + 1
+                val chosenMonth = monthSpinner.selectedItemPosition + 1
+
+                val gDate = jalaliToGregorian(currentYear, chosenMonth, chosenDay)
+                targetCal = Calendar.getInstance().apply {
+                    set(Calendar.YEAR, gDate[0])
+                    set(Calendar.MONTH, gDate[1] - 1)
+                    set(Calendar.DAY_OF_MONTH, gDate[2])
+                }
                 syncDateFromTargetCal()
-                Toast.makeText(this, "تاریخ ارسال تغییر کرد.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "تاریخ ارسال تغییر یافت: $chosenDay ${monthNames[chosenMonth]}", Toast.LENGTH_SHORT).show()
             }
-            .setNeutralButton("یک روز قبل از امروز") { _, _ -> resetToYesterdayDefault(true) }
             .setNegativeButton("انصراف", null)
             .show()
     }
 
+    // ---------------------------------------------------------------- گزینه‌های پیامک روز
+
     private fun loadOptions() {
-        currentDailyOptions = DailySmsBank.getMessages(currentMonth, currentDay)
+        currentDailyOptions = DailySmsBank.getDailyOptions(currentMonth, currentDay)
         selectedOptionIndex = prefs.getInt("selected_opt_$todayKey", 0)
-        if (selectedOptionIndex !in 0..3) selectedOptionIndex = 0
+        if (selectedOptionIndex !in 0 until 4) selectedOptionIndex = 0
 
         for (i in 0 until 4) {
-            val text = if (i in currentDailyOptions.indices) currentDailyOptions[i] else ""
+            val optText = if (i in currentDailyOptions.indices) currentDailyOptions[i] else ""
             if (i < optionTextViews.size) {
-                optionTextViews[i].text = text
+                optionTextViews[i].text = optText
             }
         }
+
         updateOptionStyles()
 
         val savedMsg = prefs.getString("custom_msg_$todayKey", null)
-        val initialText = if (!savedMsg.isNullOrEmpty()) {
-            savedMsg
-        } else if (selectedOptionIndex in currentDailyOptions.indices) {
+        val defaultForOpt = if (selectedOptionIndex in currentDailyOptions.indices) {
             currentDailyOptions[selectedOptionIndex]
         } else {
             DailySmsBank.getMessage(currentMonth, currentDay)
         }
-        msgEdit.setText(initialText)
+        msgEdit.setText(savedMsg ?: defaultForOpt)
     }
 
     private fun selectOption(index: Int) {
-        if (index !in 0..3) return
+        if (index !in 0 until 4) return
         selectedOptionIndex = index
         prefs.edit().putInt("selected_opt_$todayKey", index).apply()
         updateOptionStyles()
 
-        val chosenText = if (index in currentDailyOptions.indices) currentDailyOptions[index] else ""
-        msgEdit.setText(chosenText)
-        prefs.edit().putString("custom_msg_$todayKey", chosenText).apply()
-        Toast.makeText(this, "گزینه ${index + 1} انتخاب و در کادر قرار گرفت", Toast.LENGTH_SHORT).show()
+        val newMsg = if (index in currentDailyOptions.indices) {
+            currentDailyOptions[index]
+        } else {
+            DailySmsBank.getMessage(currentMonth, currentDay)
+        }
+        msgEdit.setText(newMsg)
+        prefs.edit().putString("custom_msg_$todayKey", newMsg).apply()
+
+        val optName = when (index) {
+            0 -> "معرفی ملک ویژه"
+            1 -> "پیگیری مشتری"
+            2 -> "پیشنهاد ویژه"
+            3 -> "پیام مناسبتی"
+            else -> "گزینه ${index + 1}"
+        }
+        Toast.makeText(this, "قالب «$optName» انتخاب شد", Toast.LENGTH_SHORT).show()
     }
 
     private fun updateOptionStyles() {
@@ -777,217 +1046,218 @@ class MainActivity : Activity() {
             val isSel = (i == selectedOptionIndex)
             if (i < optionViews.size) {
                 if (isSel) {
-                    // کاشی فعال: هایلایت سه‌بعدی برجسته با رنگ آبی روشن و حاشیه ۲ پیکسلی
                     optionViews[i].background = roundRect(
-                        Color.parseColor("#EFF6FF"),
-                        12,
+                        Color.parseColor("#FFF8F4"),
+                        14,
                         2,
-                        Color.parseColor("#2563EB")
+                        Color.parseColor("#C25E34")
                     )
-                    optionViews[i].elevation = dp(7).toFloat()
-                    optionViews[i].translationZ = dp(2).toFloat()
+                    optionViews[i].elevation = dp(6).toFloat()
                 } else {
                     optionViews[i].background = roundRect(
                         Color.WHITE,
-                        12,
+                        14,
                         1,
-                        Color.parseColor("#E2E8F0")
+                        Color.parseColor("#EBE5DC")
                     )
                     optionViews[i].elevation = dp(3).toFloat()
-                    optionViews[i].translationZ = 0f
                 }
             }
             if (i < optionRadioViews.size) {
                 val rv = optionRadioViews[i]
                 rv.text = if (isSel) "✓ انتخابی" else "انتخاب"
-                rv.setTextColor(if (isSel) Color.parseColor("#1D4ED8") else Color.parseColor("#64748B"))
+                rv.setTextColor(if (isSel) Color.parseColor("#C25E34") else Color.parseColor("#78716C"))
                 rv.background = roundRect(
-                    if (isSel) Color.parseColor("#DBEAFE") else Color.parseColor("#F1F5F9"),
-                    8
+                    if (isSel) Color.parseColor("#FFF2EB") else Color.parseColor("#F5F5F4"),
+                    6
                 )
             }
         }
     }
 
-    /** تبدیل شمسی به میلادی برای نگهداری تاریخ انتخابی به‌صورت دقیق */
-    private fun jalaliToGregorian(jyIn: Int, jmIn: Int, jdIn: Int): IntArray {
-        val jy = jyIn - 979
-        val jm = jmIn - 1
-        val jd = jdIn - 1
-        var jDayNo = 365 * jy + (jy / 33) * 8 + ((jy % 33 + 3) / 4)
-        for (i in 0 until jm) jDayNo += if (i < 6) 31 else 30
-        jDayNo += jd
-        var gDayNo = jDayNo + 79
-        var gy = 1600 + 400 * (gDayNo / 146097)
-        gDayNo %= 146097
-        var leap = true
-        if (gDayNo >= 36525) {
-            gDayNo -= 1
-            gy += 100 * (gDayNo / 36524)
-            gDayNo %= 36524
-            if (gDayNo >= 365) gDayNo += 1 else leap = false
+    // ---------------------------------------------------------------- تبدیل دقیق تقویم شمسی/میلادی
+
+    private fun jalaliToGregorian(jy: Int, jm: Int, jd: Int): IntArray {
+        val jDaysInMonth = intArrayOf(0, 31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29)
+        var totalJalaliDays = 0
+        for (y in 1 until jy) {
+            val isLeap = (((((y - 474) % 2820) + 2820) % 2820 + 474) * 682 % 2816) < 682
+            totalJalaliDays += if (isLeap) 366 else 365
         }
-        gy += 4 * (gDayNo / 1461)
-        gDayNo %= 1461
-        if (gDayNo >= 366) {
-            leap = false
-            gDayNo -= 1
-            gy += gDayNo / 365
-            gDayNo %= 365
+        for (m in 1 until jm) {
+            totalJalaliDays += jDaysInMonth[m]
         }
-        val gDaysInMonth = intArrayOf(31, if (leap) 29 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
-        var gm = 0
-        while (gDayNo >= gDaysInMonth[gm]) {
-            gDayNo -= gDaysInMonth[gm]
-            gm++
-        }
-        return intArrayOf(gy, gm + 1, gDayNo + 1)
+        totalJalaliDays += jd - 1
+
+        val jdn = totalJalaliDays + 1948321
+        val l = jdn + 68569
+        val n = (4 * l) / 146097
+        val l2 = l - (146097 * n + 3) / 4
+        val i = (4000 * (l2 + 1)) / 1461001
+        val l3 = l2 - (1461 * i) / 4 + 31
+        val j = (80 * l3) / 2447
+        val gd = l3 - (2447 * j) / 80
+        val l4 = j / 11
+        val gm = j + 2 - 12 * l4
+        val gy = 100 * (n - 49) + i + l4
+
+        return intArrayOf(gy, gm, gd)
     }
 
-    /**
-     * تبدیل دقیق و استاندارد تقویم میلادی به شمسی (الگوریتم رسمی جلالی)
-     */
-    private fun gregorianToJalali(gyear: Int, gmonth: Int, gday: Int): IntArray {
-        val gDaysInMonth = intArrayOf(31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
-        val jDaysInMonth = intArrayOf(31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29)
+    private fun gregorianToJalali(gy: Int, gm: Int, gd: Int): IntArray {
+        val gDaysInMonth = intArrayOf(0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+        fun isGregorianLeap(y: Int): Boolean = (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)
 
-        val gy = gyear - 1600
-        val gm = gmonth - 1
-        var jDayNo = 365 * gy + (gy + 3) / 4 - (gy + 99) / 100 + (gy + 399) / 400 + gday - 1 - 79
-        for (i in 0 until gm) {
-            jDayNo += gDaysInMonth[i]
+        var totalDays = 0
+        for (y in 1 until gy) {
+            totalDays += if (isGregorianLeap(y)) 366 else 365
         }
-        if (gm > 1 && ((gyear % 4 == 0 && gyear % 100 != 0) || (gyear % 400 == 0))) {
-            jDayNo += 1
+        for (m in 1 until gm) {
+            totalDays += if (m == 2 && isGregorianLeap(gy)) 29 else gDaysInMonth[m]
         }
+        totalDays += gd - 1
 
-        val jNp = jDayNo / 12053
-        jDayNo %= 12053
-        var jy = 979 + 33 * jNp + 4 * (jDayNo / 1461)
-        jDayNo %= 1461
+        val jalaliOrigin = 226899
+        var jDays = totalDays - jalaliOrigin
 
-        if (jDayNo >= 366) {
-            jDayNo -= 1
-            jy += jDayNo / 365
-            jDayNo %= 365
-        }
-
-        var jm = 12
-        for (i in 0 until 11) {
-            if (jDayNo < jDaysInMonth[i]) {
-                jm = i + 1
+        var jy = 1
+        while (true) {
+            val isLeap = (((((jy - 474) % 2820) + 2820) % 2820 + 474) * 682 % 2816) < 682
+            val yearDays = if (isLeap) 366 else 365
+            if (jDays >= yearDays) {
+                jDays -= yearDays
+                jy++
+            } else {
                 break
             }
-            jDayNo -= jDaysInMonth[i]
         }
-        val jd = jDayNo + 1
+
+        val jDaysInMonth = intArrayOf(31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29)
+        var jm = 1
+        for (m in 0 until 12) {
+            val days = jDaysInMonth[m]
+            if (jDays >= days) {
+                jDays -= days
+                jm++
+            } else {
+                break
+            }
+        }
+        val jd = jDays + 1
         return intArrayOf(jy, jm, jd)
     }
 
-    // ---------------------------------------------------------------- تشخیص اپراتور و تقسیم سیم‌کارت
+    // ---------------------------------------------------------------- اپراتور و سیم‌کارت‌ها
 
-    /**
-     * تشخیص اپراتور شماره موبایل در ایران بر اساس پیش‌شماره معتبر
-     */
     private fun detectOperator(phone: String): Operator {
-        var p = latinDigits(phone).filter { it.isDigit() }
-        if (p.startsWith("0098")) p = "0" + p.substring(4)
-        else if (p.startsWith("98") && p.length == 12) p = "0" + p.substring(2)
-        if (p.length == 10 && p.startsWith("9")) p = "0$p"
-
-        if (p.length == 11 && p.startsWith("09")) {
-            val prefix = p.substring(0, 4)
-            return when (prefix) {
-                "0910", "0911", "0912", "0913", "0914", "0915", "0916", "0917", "0918", "0919",
-                "0990", "0991", "0992", "0993", "0994", "0996" -> Operator.MCI
-
-                "0930", "0933", "0935", "0936", "0937", "0938", "0939",
-                "0901", "0902", "0903", "0904", "0905", "0941" -> Operator.IRANCELL
-
-                "0920", "0921", "0922", "0923" -> Operator.RIGHTEL
-
-                else -> Operator.OTHER
-            }
+        val p = normPhone(phone)
+        val clean = when {
+            p.startsWith("+98") -> "0" + p.substring(3)
+            p.startsWith("0098") -> "0" + p.substring(4)
+            p.startsWith("98") -> "0" + p.substring(2)
+            !p.startsWith("0") -> "0$p"
+            else -> p
         }
-        return Operator.OTHER
+        if (clean.length < 4) return Operator.OTHER
+        val pre4 = clean.substring(0, 4)
+
+        val mciPrefixes = setOf(
+            "0910", "0911", "0912", "0913", "0914", "0915", "0916", "0917", "0918", "0919", "0990", "0991", "0992", "0993", "0994", "0996"
+        )
+        val mtnPrefixes = setOf(
+            "0930", "0933", "0935", "0936", "0937", "0938", "0939", "0901", "0902", "0903", "0904", "0905", "0941"
+        )
+        val rightelPrefixes = setOf("0920", "0921", "0922")
+
+        return when {
+            mciPrefixes.contains(pre4) -> Operator.MCI
+            mtnPrefixes.contains(pre4) -> Operator.IRANCELL
+            rightelPrefixes.contains(pre4) -> Operator.RIGHTEL
+            else -> Operator.OTHER
+        }
     }
 
-    /**
-     * استخراج فهرست سیم‌کارت‌های فعال با تشخیص اپراتور
-     */
     private fun getActiveSimSlots(): List<SimSlot> {
-        val list = ArrayList<SimSlot>()
-        if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) {
-            val sm = getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
-            if (sm != null) {
-                try {
-                    val subs = sm.activeSubscriptionInfoList
-                    if (!subs.isNullOrEmpty()) {
-                        subs.forEachIndexed { idx, sub ->
-                            val raw = ((sub.displayName?.toString() ?: "") + " " + (sub.carrierName?.toString() ?: "")).lowercase()
-                            val op = when {
-                                raw.contains("irancell") || raw.contains("ایرانسل") || raw.contains("mtn") -> Operator.IRANCELL
-                                raw.contains("mci") || raw.contains("همراه اول") || raw.contains("tci") -> Operator.MCI
-                                raw.contains("rightel") || raw.contains("رایتل") -> Operator.RIGHTEL
-                                else -> Operator.OTHER
-                            }
-                            val cleanName = sub.displayName?.toString()?.trim() ?: sub.carrierName?.toString()?.trim() ?: "سیم‌کارت ${idx + 1}"
-                            list.add(SimSlot(sub.subscriptionId, idx + 1, cleanName, op))
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
+        val result = ArrayList<SimSlot>()
+        if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+            return result
         }
-        return list
+        val sm = getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager ?: return result
+        try {
+            val list = sm.activeSubscriptionInfoList ?: return result
+            for (info in list) {
+                val subId = info.subscriptionId
+                val slot = info.simSlotIndex + 1
+                val displayName = info.displayName?.toString() ?: "سیم $slot"
+                val carrier = info.carrierName?.toString() ?: ""
+                val combined = "$displayName $carrier".lowercase()
+
+                val op = when {
+                    combined.contains("mci") || combined.contains("hamrah") || combined.contains("همراه") -> Operator.MCI
+                    combined.contains("mtn") || combined.contains("irancell") || combined.contains("ایرانسل") -> Operator.IRANCELL
+                    combined.contains("rightel") || combined.contains("رایتل") -> Operator.RIGHTEL
+                    else -> if (slot == 1) Operator.MCI else Operator.IRANCELL
+                }
+                result.add(SimSlot(subId, slot, displayName, op))
+            }
+        } catch (_: Exception) {}
+        return result
     }
 
-    private fun updateSimInfo() {
+    fun updateSimInfo() {
         if (!::simSummaryText.isInitialized) return
         if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
-            simSummaryText.text = "⚠️ جهت تقسیم هوشمند پیامک‌ها، دسترسی تلفن لازم است."
+            simSummaryText.text = "⚠️ دسترسی تلفن برای تقسیم خودکار سیم‌کارت‌ها لازم است."
             return
         }
         val slots = getActiveSimSlots()
         if (slots.isEmpty()) {
-            simSummaryText.text = "سیم‌کارت فعال شناسایی نشد (ارسال با سیم‌کارت پیش‌فرض سیستم انجام می‌شود)."
+            simSummaryText.text = "سیم‌کارت فعال شناسایی نشد (ارسال با سیم‌کارت پیش‌فرض انجام می‌شود)."
             return
         }
+
+        if (slots.size >= 1) {
+            val s1 = slots[0]
+            val opName = when (s1.op) {
+                Operator.MCI -> "همراه اول"
+                Operator.IRANCELL -> "ایرانسل"
+                Operator.RIGHTEL -> "رایتل"
+                Operator.OTHER -> "فعال"
+            }
+            sim1StatusText.text = "$opName • فعال"
+        }
+        if (slots.size >= 2) {
+            val s2 = slots[1]
+            val opName = when (s2.op) {
+                Operator.MCI -> "همراه اول"
+                Operator.IRANCELL -> "ایرانسل"
+                Operator.RIGHTEL -> "رایتل"
+                Operator.OTHER -> "فعال"
+            }
+            sim2StatusText.text = "$opName • فعال"
+        } else {
+            sim2StatusText.text = "غیرفعال"
+        }
+
         if (slots.size == 1) {
-            val s = slots[0]
-            val opName = when (s.op) {
-                Operator.MCI -> "همراه اول"
-                Operator.IRANCELL -> "ایرانسل"
-                Operator.RIGHTEL -> "رایتل"
-                Operator.OTHER -> ""
-            }
-            val tag = if (opName.isNotEmpty()) " [$opName]" else ""
-            simSummaryText.text = "تنها یک سیم‌کارت فعال (${s.name}$tag) شناسایی شد. همه پیامک‌ها از همین سیم ارسال می‌شوند."
-            return
+            simSummaryText.text = "یک سیم‌کارت فعال شناسایی شد. همه پیامک‌ها از این خط ارسال می‌شوند."
+        } else {
+            simSummaryText.text = "هر دو سیم‌کارت فعال هستند. پیامک‌ها با بالانس مساوی (۵۰/۵۰) بین دو سیم تقسیم می‌شوند."
         }
-
-        val names = slots.joinToString("  |  ") { s ->
-            val opLabel = when (s.op) {
-                Operator.MCI -> "همراه اول"
-                Operator.IRANCELL -> "ایرانسل"
-                Operator.RIGHTEL -> "رایتل"
-                Operator.OTHER -> "سایر"
-            }
-            "سیم ${s.slotIndex}: ${s.name} ($opLabel)"
-        }
-
-        simSummaryText.text = """✅ شناسایی شد: $names
-🎯 الگوریتم هوشمند فعال: شماره‌های همراه اول با سیم همراه اول و شماره‌های ایرانسل با سیم ایرانسل ارسال می‌شوند (همراه با سقف ۵۰/۵۰ تا هیچ خطی مسدود نشود)."""
     }
 
     private fun getSmsManagerForSub(subId: Int): SmsManager {
-        return if (Build.VERSION.SDK_INT >= 31) {
-            val base = getSystemService(SmsManager::class.java)
-                ?: @Suppress("DEPRECATION") SmsManager.getDefault()
-            if (subId > 0) base.createForSubscriptionId(subId) else base
-        } else {
-            if (subId > 0) {
+        return if (subId != -1) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val ctx = createAttributionContext(null)
+                ctx.getSystemService(SmsManager::class.java).createForSubscriptionId(subId)
+            } else {
                 @Suppress("DEPRECATION")
                 SmsManager.getSmsManagerForSubscriptionId(subId)
+            }
+        } else {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                getSystemService(SmsManager::class.java)
             } else {
                 @Suppress("DEPRECATION")
                 SmsManager.getDefault()
@@ -995,68 +1265,79 @@ class MainActivity : Activity() {
         }
     }
 
-    // ---------------------------------------------------------------- مخاطبین
+    // ---------------------------------------------------------------- مخاطبین و ارسال
 
     private fun latinDigits(s: String): String {
+        val fa = "۰۱۲۳۴۵۶۷۸۹"
+        val ar = "٠١٢٣٤٥٦٧٨٩"
         val sb = StringBuilder()
-        for (ch in s) {
-            when (ch) {
-                in '۰'..'۹' -> sb.append('0' + (ch - '۰'))
-                in '٠'..'٩' -> sb.append('0' + (ch - '٠'))
-                else -> sb.append(ch)
+        for (c in s) {
+            val ifa = fa.indexOf(c)
+            val iar = ar.indexOf(c)
+            when {
+                ifa >= 0 -> sb.append(ifa)
+                iar >= 0 -> sb.append(iar)
+                else -> sb.append(c)
             }
         }
         return sb.toString()
     }
 
-    private val dateRegex = Regex("""^\s*(\d{4})[/\-.]?(\d{2})[/\-.]?(\d{2})(?!\d)""")
-
     private fun parseMd(name: String): Int? {
-        val m = dateRegex.find(latinDigits(name)) ?: return null
-        val mo = m.groupValues[2].toInt()
-        val da = m.groupValues[3].toInt()
-        if (mo !in 1..12 || da !in 1..31) return null
-        return mo * 100 + da
+        val s = latinDigits(name)
+        val m = Regex("(?<!\\d)(\\d{1,2})[./\\-_](\\d{1,2})(?!\\d)").find(s) ?: return null
+        val a = m.groupValues[1].toIntOrNull() ?: return null
+        val b = m.groupValues[2].toIntOrNull() ?: return null
+
+        val (month, day) = when {
+            a in 1..12 && b in 1..31 && (a > 12 || b > 12) -> Pair(a, b)
+            b in 1..12 && a in 1..31 && (a > 12 || b > 12) -> Pair(b, a)
+            a in 1..12 && b in 1..31 -> Pair(a, b)
+            b in 1..12 && a in 1..31 -> Pair(b, a)
+            else -> return null
+        }
+        return month * 100 + day
     }
 
-    private fun normPhone(raw: String): String? {
-        var d = latinDigits(raw).filter { it.isDigit() }
-        if (d.startsWith("0098")) d = d.substring(4)
-        else if (d.startsWith("98") && d.length == 12) d = d.substring(2)
-        if (d.length == 10 && d.startsWith("9")) d = "0$d"
-        return if (Regex("""^09\d{9}$""").matches(d)) d else null
+    private fun normPhone(raw: String): String {
+        val s = latinDigits(raw).replace("[^0-9+]".toRegex(), "")
+        return when {
+            s.startsWith("0098") -> "+98" + s.substring(4)
+            s.startsWith("098") -> "+98" + s.substring(3)
+            s.startsWith("98") -> "+98" + s.substring(2)
+            s.startsWith("09") -> "+98" + s.substring(1)
+            s.startsWith("9") && s.length == 10 -> "+98$s"
+            else -> s
+        }
     }
 
     private fun loadContacts() {
-        statusText.text = "⏳ در حال خواندن مخاطبین دفترچه تلفن..."
         Thread {
             val list = ArrayList<Contact>()
-            try {
-                val c = contentResolver.query(
-                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                    arrayOf(
-                        ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
-                        ContactsContract.CommonDataKinds.Phone.NUMBER
-                    ),
-                    null, null, null
-                )
-                c?.use {
-                    val ni = it.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
-                    val pi = it.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)
-                    while (it.moveToNext()) {
-                        val name = it.getString(ni) ?: continue
-                        val md = parseMd(name) ?: continue
-                        val phone = normPhone(it.getString(pi) ?: "") ?: continue
-                        list.add(Contact(name, phone, md))
+            var totalRead = 0
+            val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+            val proj = arrayOf(
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                ContactsContract.CommonDataKinds.Phone.NUMBER
+            )
+            val cursor = contentResolver.query(uri, proj, null, null, null)
+            cursor?.use { c ->
+                val nameIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                val numIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                while (c.moveToNext()) {
+                    totalRead++
+                    val name = if (nameIdx >= 0) c.getString(nameIdx) ?: "" else ""
+                    val num = if (numIdx >= 0) c.getString(numIdx) ?: "" else ""
+                    val md = parseMd(name)
+                    if (md != null) {
+                        val p = normPhone(num)
+                        if (p.isNotEmpty()) list.add(Contact(name, p, md))
                     }
                 }
-            } catch (e: Exception) {
-                ui.post { statusText.text = "خطا در خواندن مخاطبین: ${e.message}" }
             }
+            contacts = list
             ui.post {
-                contacts = list
-                totalContactsReadView.text = "${list.size} مخاطب دارای تاریخ در دفترچه تلفن یافت شد"
-                statusText.text = "آماده برای ارسال پیامک"
+                totalContactsReadView.text = "بررسی شد: $totalRead مخاطب خوانده شد (${list.size} مخاطب دارای تاریخ روز و ماه)"
                 refresh()
             }
         }.start()
@@ -1064,17 +1345,21 @@ class MainActivity : Activity() {
 
     private fun targetMd(): Int = currentMonth * 100 + currentDay
 
-    private fun sentSet(): Set<String> = prefs.getStringSet("sent", emptySet()) ?: emptySet()
+    private fun sentSet(): Set<String> {
+        return prefs.getStringSet("sent_$todayKey", emptySet()) ?: emptySet()
+    }
 
-    private fun pending(): List<String> {
+    private fun pending(): List<Contact> {
         val md = targetMd()
         val sent = sentSet()
-        return contacts.asSequence()
-            .filter { it.md == md }
-            .map { it.phone }
-            .distinct()
-            .filter { !sent.contains("$todayKey|$it") }
-            .toList()
+        val forToday = contacts.filter { it.md == md }
+        val byPhone = LinkedHashMap<String, Contact>()
+        for (c in forToday) {
+            if (!sent.contains(c.phone) && !byPhone.containsKey(c.phone)) {
+                byPhone[c.phone] = c
+            }
+        }
+        return byPhone.values.toList()
     }
 
     private fun refresh() {
@@ -1082,25 +1367,20 @@ class MainActivity : Activity() {
         val md = targetMd()
         val total = contacts.filter { it.md == md }.map { it.phone }.distinct().size
         val left = pending().size
-        totalCountBadge.text = "👥 مخاطبین امروز: $total نفر"
-        pendingCountBadge.text = "⏳ مانده برای ارسال: $left نفر"
+        totalCountBadge.text = "$total مخاطب آماده ارسال"
+        pendingCountBadge.text = if (left == 0 && total > 0) "✓ تماماً ارسال شد" else "● $left در صف"
+        sendBtn.text = if (left > 0) "✈️ ارسال پیامک به $left مخاطب" else "✈️ ارسال پیامک به مخاطبین"
     }
 
-    // ---------------------------------------------------------------- طرح‌ریزی هوشمند ارسال اپراتوری
-
-    /**
-     * برنامه‌ریزی هوشمند ارسال پیامک‌ها با تطبیق اپراتور و رعایت سقف مساوی (۵۰/۵۰)
-     */
     private fun planSendingTasks(phones: List<String>, slots: List<SimSlot>): List<SendTask> {
         if (slots.isEmpty()) {
-            return phones.map { SendTask(it, -1, "سیم‌کارت پیش‌فرض", "پیش‌فرض") }
+            return phones.map { SendTask(it, -1, "پیش‌فرض", "پیش‌فرض") }
         }
         if (slots.size == 1) {
             val s = slots[0]
-            return phones.map { SendTask(it, s.subId, "سیم ${s.slotIndex} (${s.name})", "تک سیم‌کارت") }
+            return phones.map { SendTask(it, s.subId, "سیم ${s.slotIndex} (${s.name})", "تک‌سیم") }
         }
 
-        // اگر دو سیم‌کارت داریم:
         val sim1 = slots[0]
         val sim2 = slots[1]
 
@@ -1112,135 +1392,140 @@ class MainActivity : Activity() {
         val sim2Tasks = ArrayList<SendTask>()
         val unassigned = ArrayList<Pair<String, Operator>>()
 
-        // مرحله ۱: اولویت تطبیق مستقیم اپراتور شماره با اپراتور سیم‌کارت
         for (phone in phones) {
             val op = detectOperator(phone)
             if (op == sim1.op && sim1Tasks.size < quota1) {
-                sim1Tasks.add(SendTask(phone, sim1.subId, "سیم ${sim1.slotIndex} (${sim1.name})", "تطبیق اپراتور"))
+                sim1Tasks.add(SendTask(phone, sim1.subId, "سیم ۱ (${sim1.name})", "تطبیق اپراتور"))
             } else if (op == sim2.op && sim2Tasks.size < quota2) {
-                sim2Tasks.add(SendTask(phone, sim2.subId, "سیم ${sim2.slotIndex} (${sim2.name})", "تطبیق اپراتور"))
+                sim2Tasks.add(SendTask(phone, sim2.subId, "سیم ۲ (${sim2.name})", "تطبیق اپراتور"))
             } else {
                 unassigned.add(Pair(phone, op))
             }
         }
 
-        // مرحله ۲: توزیع شماره‌های باقیمانده یا سرریز به سیم‌کارت دیگر تا سقف ۵۰/۵۰ حفظ شود
-        for ((phone, op) in unassigned) {
+        for ((phone, _) in unassigned) {
             if (sim1Tasks.size < quota1) {
-                sim1Tasks.add(SendTask(phone, sim1.subId, "سیم ${sim1.slotIndex} (${sim1.name})", "توازن خط"))
+                sim1Tasks.add(SendTask(phone, sim1.subId, "سیم ۱ (${sim1.name})", "بالانس ۵۰٪"))
+            } else if (sim2Tasks.size < quota2) {
+                sim2Tasks.add(SendTask(phone, sim2.subId, "سیم ۲ (${sim2.name})", "بالانس ۵۰٪"))
             } else {
-                sim2Tasks.add(SendTask(phone, sim2.subId, "سیم ${sim2.slotIndex} (${sim2.name})", "توازن خط"))
+                sim1Tasks.add(SendTask(phone, sim1.subId, "سیم ۱ (${sim1.name})", "سرریز"))
             }
         }
 
-        // ادغام تسک‌ها به صورت متناوب (Interleaved) تا ارسال‌ها درجا بین دو سیم جابجا شوند
-        val result = ArrayList<SendTask>()
+        val finalTasks = ArrayList<SendTask>(total)
         var i1 = 0
         var i2 = 0
         while (i1 < sim1Tasks.size || i2 < sim2Tasks.size) {
-            if (i1 < sim1Tasks.size) {
-                result.add(sim1Tasks[i1++])
-            }
-            if (i2 < sim2Tasks.size) {
-                result.add(sim2Tasks[i2++])
-            }
+            if (i1 < sim1Tasks.size) finalTasks.add(sim1Tasks[i1++])
+            if (i2 < sim2Tasks.size) finalTasks.add(sim2Tasks[i2++])
         }
-        return result
+        return finalTasks
     }
 
-    // ---------------------------------------------------------------- ارسال خودکار
-
     private fun onSendClicked() {
-        if (sending) return
         if (!hasPerms()) {
-            Toast.makeText(this, "ابتدا دسترسی‌ها را تأیید کنید", Toast.LENGTH_LONG).show()
             requestPermissions(requiredPerms, 1)
+            return
+        }
+        if (sending) {
+            Toast.makeText(this, "ارسال در حال انجام است...", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val toSend = pending()
+        if (toSend.isEmpty()) {
+            Toast.makeText(this, "مخاطبی با تاریخ انتخابی برای ارسال وجود ندارد", Toast.LENGTH_LONG).show()
             return
         }
         val text = msgEdit.text.toString().trim()
         if (text.isEmpty()) {
-            Toast.makeText(this, "لطفاً ابتدا متن پیامک را وارد کنید", Toast.LENGTH_LONG).show()
-            return
-        }
-        val list = pending()
-        if (list.isEmpty()) {
-            Toast.makeText(this, "برای تاریخ امروز هیچ مخاطب ارسال نشده‌ای وجود ندارد", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "متن پیامک نمی‌تواند خالی باشد", Toast.LENGTH_SHORT).show()
             return
         }
 
         val slots = getActiveSimSlots()
-        val tasks = planSendingTasks(list, slots)
+        val count = toSend.size
+        val mName = if (currentMonth in 1..12) monthNames[currentMonth] else "$currentMonth"
 
-        val sim1Count = tasks.count { slots.isNotEmpty() && it.subId == slots[0].subId }
-        val sim2Count = tasks.count { slots.size > 1 && it.subId == slots[1].subId }
-
-        val simDesc = if (slots.size >= 2) {
-            """📱 تقسیم هوشمند اپراتور و بالانس سهمیه‌ها:
-• سیم ۱ (${slots[0].name}): $sim1Count پیامک
-• سیم ۲ (${slots[1].name}): $sim2Count پیامک
-(اولویت با ارسال شماره‌های همراه اول با سیم همراه اول و ایرانسل با سیم ایرانسل + تقسیم ۵۰/۵۰ جهت پیشگیری از مسدودی)""".trimIndent()
+        val simPlanDesc = if (slots.size >= 2) {
+            val q1 = (count + 1) / 2
+            val q2 = count - q1
+            "تقسیم متوازن: $q1 پیام از سیم ۱ و $q2 پیام از سیم ۲"
+        } else if (slots.size == 1) {
+            "ارسال از سیم‌کارت ۱ (${slots[0].name})"
         } else {
-            "پیامک‌ها از سیم‌کارت فعال ارسال خواهند شد."
+            "ارسال از سیم‌کارت پیش‌فرض"
         }
 
         AlertDialog.Builder(this)
-            .setTitle("ارسال هوشمند برای ${list.size} مخاطب")
-            .setMessage("""متن ارسالی:
-$text
-
-$simDesc
-
-آیا ارسال شروع شود؟""".trimIndent())
-            .setPositiveButton("شروع ارسال") { _, _ ->
-                startSending(tasks, text)
-            }
+            .setTitle("تأیید ارسال پیامک‌ها")
+            .setMessage(
+                "تعداد: $count پیامک برای مخاطبین $currentDay $mName\n" +
+                "$simPlanDesc\n\n" +
+                "متن پیام:\n$text\n\n" +
+                "آیا ارسال آغاز شود؟"
+            )
+            .setPositiveButton("شروع ارسال") { _, _ -> startSending(toSend, text, slots) }
             .setNegativeButton("انصراف", null)
             .show()
     }
 
-    private fun startSending(tasks: List<SendTask>, text: String) {
+    private fun startSending(toSend: List<Contact>, text: String, slots: List<SimSlot>) {
         sending = true
         sendBtn.isEnabled = false
-        sendBtn.alpha = 0.5f
-        resetMsgBtn.isEnabled = false
         progressBar.visibility = View.VISIBLE
-        progressBar.max = tasks.size
+        progressBar.max = toSend.size
         progressBar.progress = 0
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        sendNext(tasks, text, 0, 0)
+
+        val phones = toSend.map { it.phone }
+        val tasks = planSendingTasks(phones, slots)
+
+        Thread {
+            sendNext(tasks, 0, text, 0, 0)
+        }.start()
     }
 
-    private fun sendNext(tasks: List<SendTask>, text: String, i: Int, failed: Int) {
-        if (i >= tasks.size) {
-            sending = false
-            sendBtn.isEnabled = true
-            sendBtn.alpha = 1.0f
-            resetMsgBtn.isEnabled = true
-            progressBar.visibility = View.GONE
-            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            statusText.text = "🎉 ارسال کامل شد: ${tasks.size - failed} موفق، $failed ناموفق."
-            refresh()
+    private fun sendNext(tasks: List<SendTask>, index: Int, text: String, okCount: Int, failCount: Int) {
+        if (index >= tasks.size) {
+            ui.post {
+                sending = false
+                sendBtn.isEnabled = true
+                progressBar.visibility = View.GONE
+                statusText.text = "ارسال پایان یافت: $okCount موفق، $failCount ناموفق"
+                refresh()
+                Toast.makeText(this, "ارسال به اتمام رسید ($okCount موفق)", Toast.LENGTH_LONG).show()
+            }
             return
         }
-        var f = failed
-        val task = tasks[i]
 
+        val task = tasks[index]
+        var ok = false
         try {
-            val sms = getSmsManagerForSub(task.subId)
-            val parts = sms.divideMessage(text)
-            sms.sendMultipartTextMessage(task.phone, null, parts, null, null)
+            val mgr = getSmsManagerForSub(task.subId)
+            val parts = mgr.divideMessage(text)
+            if (parts.size > 1) {
+                mgr.sendMultipartTextMessage(task.phone, null, parts, null, null)
+            } else {
+                mgr.sendTextMessage(task.phone, null, text, null, null)
+            }
+            ok = true
+        } catch (_: Exception) {}
+
+        if (ok) {
             val set = HashSet(sentSet())
-            set.add("$todayKey|${task.phone}")
-            prefs.edit().putStringSet("sent", set).apply()
-        } catch (e: Exception) {
-            f++
+            set.add(task.phone)
+            prefs.edit().putStringSet("sent_$todayKey", set).apply()
         }
 
-        progressBar.progress = i + 1
-        statusText.text = "در حال ارسال ${i + 1} از ${tasks.size} (${task.simLabel} - ${task.phone}) ... لطفا صفحه را نبندید"
-        refresh()
+        val nextOk = if (ok) okCount + 1 else okCount
+        val nextFail = if (ok) failCount else failCount + 1
 
-        // تاخیر ۳.۵ ثانیه بین پیامک‌ها برای جلوگیری از اسپم اپراتور
-        ui.postDelayed({ sendNext(tasks, text, i + 1, f) }, 3500)
+        ui.post {
+            progressBar.progress = index + 1
+            statusText.text = "در حال ارسال (${index + 1}/${tasks.size}) از طریق ${task.simLabel}..."
+        }
+
+        try { Thread.sleep(2500) } catch (_: InterruptedException) {}
+        sendNext(tasks, index + 1, text, nextOk, nextFail)
     }
 }
