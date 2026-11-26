@@ -65,6 +65,8 @@ class MainActivity : Activity() {
     private lateinit var calendarStripContainer: LinearLayout
     private lateinit var totalCountBadge: TextView
     private lateinit var pendingCountBadge: TextView
+    private lateinit var statsSubtitle: TextView
+    private lateinit var viewListBtn: TextView
     private lateinit var sim1StatusText: TextView
     private lateinit var sim2StatusText: TextView
     private lateinit var simSummaryText: TextView
@@ -379,8 +381,8 @@ class MainActivity : Activity() {
         }
         statsTextCol.addView(totalCountBadge)
 
-        val statsSubtitle = TextView(this).apply {
-            text = "مشتریان امروز، فرصت‌های فردا هستند."
+        statsSubtitle = TextView(this).apply {
+            text = "مخاطبین روز انتخابی (همه سال‌ها)"
             textSize = 12f
             setTextColor(Color.parseColor("#446B4F"))
             setPadding(0, dp(2), 0, 0)
@@ -404,16 +406,36 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(10), 0, 0)
         }
-        val viewListBtn = TextView(this).apply {
-            text = "📋 مشاهده شماره‌ها و اسامی مخاطبین این روز"
+        viewListBtn = TextView(this).apply {
+            text = "📋 مشاهده شماره‌های این روز"
             textSize = 12f
             setTextColor(Color.parseColor("#C25E34"))
             setTypeface(null, Typeface.BOLD)
-            setPadding(dp(8), dp(4), dp(8), dp(4))
+            setPadding(dp(8), dp(5), dp(8), dp(5))
             background = roundRect(Color.parseColor("#FFF7ED"), 8, 1, Color.parseColor("#FDBA74"))
             setOnClickListener { showContactsListDialog() }
         }
         statsActionRow.addView(viewListBtn)
+
+        val reloadContactsBtn = TextView(this).apply {
+            text = "🔄 بروزرسانی مخاطبین"
+            textSize = 12f
+            setTextColor(Color.parseColor("#1B4D2E"))
+            setTypeface(null, Typeface.BOLD)
+            setPadding(dp(8), dp(5), dp(8), dp(5))
+            background = roundRect(Color.parseColor("#EAF4EC"), 8, 1, Color.parseColor("#BFDEBF"))
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.marginStart = dp(8)
+            layoutParams = lp
+            setOnClickListener {
+                if (canReadContacts()) {
+                    loadContacts(true)
+                } else {
+                    Toast.makeText(this@MainActivity, "دسترسی به مخاطبین داده نشده است", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        statsActionRow.addView(reloadContactsBtn)
         statsCard.addView(statsActionRow)
         statsCard.setOnClickListener { showContactsListDialog() }
         root.addView(statsCard)
@@ -777,8 +799,8 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (canReadContacts() && !sending && contacts.isEmpty()) {
-            loadContacts()
+        if (canReadContacts() && !sending) {
+            loadContacts(false)
         }
         updateSimInfo()
     }
@@ -1332,37 +1354,29 @@ class MainActivity : Activity() {
      * ۵) ۰۹۰۳ (۴ رقم ماه و روز)
      */
     private fun parseMd(name: String): Int? {
-        val s = latinDigits(name)
+        val s = latinDigits(name).trim()
 
-        // ۱) ۴ رقم سال + ۲ رقم ماه + ۲ رقم روز (پیوسته یا با جداکننده مثل 14050903 یا 1405/09/03)
-        val m1 = Regex("""(?:^|[^\d])(\d{4})[/\-. ]?(\d{2})[/\-. ]?(\d{2})(?!\d)""").find(s)
+        // ۱) ۴ رقم سال در ابتدای نام (مثل 14050904 یا 1405/9/4 یا [1405/09/04] یا (14050904))
+        val m1 = Regex("""^[\[\(\{\s]*(\d{4})[/\-. ]?(\d{1,2})[/\-. ]?(\d{1,2})([\]\)\}\\s]|$)""").find(s)
         if (m1 != null) {
             val mo = m1.groupValues[2].toIntOrNull() ?: return null
             val da = m1.groupValues[3].toIntOrNull() ?: return null
             if (mo in 1..12 && da in 1..31) return mo * 100 + da
         }
 
-        // ۲) ۴ رقم سال با جداکننده و ماه یا روز ۱ یا ۲ رقمی (مثل 1405/9/3 یا 1405-9-03)
-        val m2 = Regex("""(?:^|[^\d])(\d{4})[/\-. ]+(\d{1,2})[/\-. ]+(\d{1,2})(?!\d)""").find(s)
+        // ۲) ماه و روز با جداکننده در ابتدای نام بدون سال (مثل 09/04 یا 9/4 یا 09-04)
+        val m2 = Regex("""^[\[\(\{\s]*(\d{1,2})[/\-. ]+(\d{1,2})([\]\)\}\\s]|$)""").find(s)
         if (m2 != null) {
-            val mo = m2.groupValues[2].toIntOrNull() ?: return null
-            val da = m2.groupValues[3].toIntOrNull() ?: return null
+            val mo = m2.groupValues[1].toIntOrNull() ?: return null
+            val da = m2.groupValues[2].toIntOrNull() ?: return null
             if (mo in 1..12 && da in 1..31) return mo * 100 + da
         }
 
-        // ۳) ماه و روز با جداکننده بدون سال (مثل 09/03 یا 9/3 یا 09-03)
-        val m3 = Regex("""(?:^|[^\d])(\d{1,2})[/\-. ]+(\d{1,2})(?!\d)""").find(s)
+        // ۳) ۴ رقم ماه و روز فشرده در ابتدای نام (مثل 0904 علی)
+        val m3 = Regex("""^[\[\(\{\s]*(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])([\]\)\}\\s]|$)""").find(s)
         if (m3 != null) {
             val mo = m3.groupValues[1].toIntOrNull() ?: return null
             val da = m3.groupValues[2].toIntOrNull() ?: return null
-            if (mo in 1..12 && da in 1..31) return mo * 100 + da
-        }
-
-        // ۴) ۴ رقم ماه و روز فشرده (مثل 0903)
-        val m4 = Regex("""(?:^|[^\d])(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)""").find(s)
-        if (m4 != null) {
-            val mo = m4.groupValues[1].toIntOrNull() ?: return null
-            val da = m4.groupValues[2].toIntOrNull() ?: return null
             return mo * 100 + da
         }
 
@@ -1378,7 +1392,7 @@ class MainActivity : Activity() {
         return if (Regex("""^09\d{9}$""").matches(d)) d else null
     }
 
-    private fun loadContacts() {
+    private fun loadContacts(showToast: Boolean = false) {
         if (!canReadContacts()) return
         ui.post {
             statusText.text = "⏳ در حال خواندن مخاطبین دفترچه تلفن..."
@@ -1415,11 +1429,13 @@ class MainActivity : Activity() {
 
             contacts = list
             ui.post {
-                val md = targetMd()
-                val todayCount = list.count { it.md == md }
-                totalContactsReadView.text = "بررسی شد: $totalRead مخاطب خوانده شد ($todayCount مخاطب برای تاریخ انتخابی)"
-                statusText.text = if (todayCount > 0) "آماده برای ارسال پیامک ($todayCount مخاطب)" else "آماده برای ارسال پیامک"
                 refresh()
+                if (showToast) {
+                    val md = targetMd()
+                    val mName = if (currentMonth in 1..12) monthNames[currentMonth] else "$currentMonth"
+                    val todayCount = list.count { it.md == md }
+                    Toast.makeText(this@MainActivity, "مخاطبین بروز شدند: $todayCount شماره برای $currentDay $mName", Toast.LENGTH_SHORT).show()
+                }
             }
         }.start()
     }
@@ -1542,11 +1558,27 @@ class MainActivity : Activity() {
     private fun refresh() {
         if (!::totalCountBadge.isInitialized) return
         val md = targetMd()
-        val total = contacts.filter { it.md == md }.map { it.phone }.distinct().size
+        val mName = if (currentMonth in 1..12) monthNames[currentMonth] else "$currentMonth"
+        val matchingContacts = contacts.filter { it.md == md }
+        val total = matchingContacts.map { it.phone }.distinct().size
         val left = pending().size
-        totalCountBadge.text = "$total مخاطب آماده ارسال"
+
+        totalCountBadge.text = "$total مخاطب برای $currentDay $mName"
+        if (::statsSubtitle.isInitialized) {
+            statsSubtitle.text = "فقط مخاطبین روز $currentDay ماه $mName (همه سال‌ها)"
+        }
         pendingCountBadge.text = if (left == 0 && total > 0) "✓ تماماً ارسال شد" else "● $left در صف"
-        sendBtn.text = if (left > 0) "✈️ ارسال پیامک به $left مخاطب" else "✈️ ارسال پیامک به مخاطبین"
+        sendBtn.text = if (left > 0) "✈️ ارسال پیامک به $left مخاطب ($currentDay $mName)" else "✈️ ارسال پیامک به مخاطبین ($currentDay $mName)"
+
+        if (::viewListBtn.isInitialized) {
+            viewListBtn.text = "📋 مشاهده $total شماره روز $currentDay $mName"
+        }
+        if (::totalContactsReadView.isInitialized) {
+            totalContactsReadView.text = "مخاطبین تاریخ‌دار: ${contacts.size} کل | فیلتر روز $currentDay $mName: $total شماره"
+        }
+        if (::statusText.isInitialized && !sending) {
+            statusText.text = if (left > 0) "آماده برای ارسال به $left مخاطب ($currentDay $mName)" else if (total > 0) "تمامی پیامک‌های روز $currentDay $mName ارسال شده‌اند" else "هیچ مخاطبی برای روز $currentDay $mName یافت نشد"
+        }
     }
 
     private fun planSendingTasks(phones: List<String>, slots: List<SimSlot>): List<SendTask> {
