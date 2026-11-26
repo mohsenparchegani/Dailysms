@@ -23,6 +23,7 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -33,6 +34,8 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import java.util.Calendar
+import java.util.GregorianCalendar
+import java.util.TimeZone
 
 /**
  * برنامه ارسال پیامک روزانه املاک یلدا
@@ -950,6 +953,19 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun jalaliMonthLength(year: Int, month: Int): Int {
+        val start = jalaliToGregorian(year, month, 1)
+        val next = if (month == 12) jalaliToGregorian(year + 1, 1, 1) else jalaliToGregorian(year, month + 1, 1)
+        fun epochDay(date: IntArray): Long {
+            val calendar = GregorianCalendar(TimeZone.getTimeZone("UTC")).apply {
+                clear()
+                set(date[0], date[1] - 1, date[2], 0, 0, 0)
+            }
+            return calendar.timeInMillis / 86_400_000L
+        }
+        return (epochDay(next) - epochDay(start)).toInt().coerceIn(29, 31)
+    }
+
     private fun showDatePickerDialog() {
         val dialogView = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -968,30 +984,39 @@ class MainActivity : Activity() {
 
         val spinRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            layoutParams = lp
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
-
-        val daySpinner = Spinner(this).apply {
-            val daysList = (1..31).map { "$it" }
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, daysList)
-            setSelection(currentDay - 1)
-            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            lp.marginEnd = dp(6)
-            layoutParams = lp
-        }
-        spinRow.addView(daySpinner)
 
         val monthSpinner = Spinner(this).apply {
-            val monthsList = (1..12).map { monthNames[it] }
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, monthsList)
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, (1..12).map { monthNames[it] })
             setSelection(currentMonth - 1)
             val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             lp.marginStart = dp(6)
             layoutParams = lp
         }
+
+        val daySpinner = Spinner(this)
+        fun updateDayChoices(month: Int, preferredDay: Int) {
+            val maxDay = jalaliMonthLength(currentYear, month)
+            daySpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, (1..maxDay).map { it.toString() })
+            daySpinner.setSelection((preferredDay.coerceAtMost(maxDay) - 1).coerceAtLeast(0))
+        }
+        updateDayChoices(currentMonth, currentDay)
+        val dayLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginEnd = dp(6)
+        }
+        daySpinner.layoutParams = dayLp
+        spinRow.addView(daySpinner)
         spinRow.addView(monthSpinner)
         dialogView.addView(spinRow)
+
+        monthSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val selectedDay = (daySpinner.selectedItemPosition + 1).coerceAtLeast(1)
+                updateDayChoices(position + 1, selectedDay)
+            }
+        }
 
         AlertDialog.Builder(this)
             .setTitle("انتخاب تاریخ ارسال")
@@ -999,12 +1024,10 @@ class MainActivity : Activity() {
             .setPositiveButton("تأیید و اعمال") { _, _ ->
                 val chosenDay = daySpinner.selectedItemPosition + 1
                 val chosenMonth = monthSpinner.selectedItemPosition + 1
-
                 val gDate = jalaliToGregorian(currentYear, chosenMonth, chosenDay)
                 targetCal = Calendar.getInstance().apply {
-                    set(Calendar.YEAR, gDate[0])
-                    set(Calendar.MONTH, gDate[1] - 1)
-                    set(Calendar.DAY_OF_MONTH, gDate[2])
+                    clear()
+                    set(gDate[0], gDate[1] - 1, gDate[2], 12, 0, 0)
                 }
                 syncDateFromTargetCal()
                 Toast.makeText(this, "تاریخ ارسال تغییر یافت: $chosenDay ${monthNames[chosenMonth]}", Toast.LENGTH_SHORT).show()
@@ -1098,73 +1121,68 @@ class MainActivity : Activity() {
 
     // ---------------------------------------------------------------- تبدیل دقیق تقویم شمسی/میلادی
 
+    // تبدیل استاندارد تاریخ شمسی و میلادی، با آزمون روی تاریخ‌های متوالی
     private fun jalaliToGregorian(jy: Int, jm: Int, jd: Int): IntArray {
-        val jDaysInMonth = intArrayOf(0, 31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29)
-        var totalJalaliDays = 0
-        for (y in 1 until jy) {
-            val isLeap = (((((y - 474) % 2820) + 2820) % 2820 + 474) * 682 % 2816) < 682
-            totalJalaliDays += if (isLeap) 366 else 365
+        val jyBase = jy - 979
+        val jmBase = jm - 1
+        val jdBase = jd - 1
+        var jDayNo = 365 * jyBase + (jyBase / 33) * 8 + ((jyBase % 33 + 3) / 4)
+        for (i in 0 until jmBase) {
+            jDayNo += if (i < 6) 31 else 30
         }
-        for (m in 1 until jm) {
-            totalJalaliDays += jDaysInMonth[m]
+        jDayNo += jdBase
+
+        var gDayNo = jDayNo + 79
+        var gy = 1600 + 400 * (gDayNo / 146097)
+        gDayNo %= 146097
+        var leap = true
+        if (gDayNo >= 36525) {
+            gDayNo -= 1
+            gy += 100 * (gDayNo / 36524)
+            gDayNo %= 36524
+            if (gDayNo >= 365) gDayNo += 1 else leap = false
         }
-        totalJalaliDays += jd - 1
+        gy += 4 * (gDayNo / 1461)
+        gDayNo %= 1461
+        if (gDayNo >= 366) {
+            leap = false
+            gDayNo -= 1
+            gy += gDayNo / 365
+            gDayNo %= 365
+        }
 
-        val jdn = totalJalaliDays + 1948321
-        val l = jdn + 68569
-        val n = (4 * l) / 146097
-        val l2 = l - (146097 * n + 3) / 4
-        val i = (4000 * (l2 + 1)) / 1461001
-        val l3 = l2 - (1461 * i) / 4 + 31
-        val j = (80 * l3) / 2447
-        val gd = l3 - (2447 * j) / 80
-        val l4 = j / 11
-        val gm = j + 2 - 12 * l4
-        val gy = 100 * (n - 49) + i + l4
-
-        return intArrayOf(gy, gm, gd)
+        val monthLengths = intArrayOf(31, if (leap) 29 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+        var gm = 0
+        while (gm < 12 && gDayNo >= monthLengths[gm]) {
+            gDayNo -= monthLengths[gm]
+            gm++
+        }
+        return intArrayOf(gy, gm + 1, gDayNo + 1)
     }
 
     private fun gregorianToJalali(gy: Int, gm: Int, gd: Int): IntArray {
-        val gDaysInMonth = intArrayOf(0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
-        fun isGregorianLeap(y: Int): Boolean = (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)
-
-        var totalDays = 0
-        for (y in 1 until gy) {
-            totalDays += if (isGregorianLeap(y)) 366 else 365
+        val gDaysBeforeMonth = intArrayOf(0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
+        var jy = if (gy > 1600) 979 else 0
+        var adjustedGy = if (gy > 1600) gy - 1600 else gy - 621
+        val gy2 = if (gm > 2) adjustedGy + 1 else adjustedGy
+        var days = 365 * adjustedGy + (gy2 + 3) / 4 - (gy2 + 99) / 100 + (gy2 + 399) / 400 - 80 + gd + gDaysBeforeMonth[gm - 1]
+        jy += 33 * (days / 12053)
+        days %= 12053
+        jy += 4 * (days / 1461)
+        days %= 1461
+        if (days > 365) {
+            jy += (days - 1) / 365
+            days = (days - 1) % 365
         }
-        for (m in 1 until gm) {
-            totalDays += if (m == 2 && isGregorianLeap(gy)) 29 else gDaysInMonth[m]
+        val jm: Int
+        val jd: Int
+        if (days < 186) {
+            jm = 1 + days / 31
+            jd = 1 + days % 31
+        } else {
+            jm = 7 + (days - 186) / 30
+            jd = 1 + (days - 186) % 30
         }
-        totalDays += gd - 1
-
-        val jalaliOrigin = 226899
-        var jDays = totalDays - jalaliOrigin
-
-        var jy = 1
-        while (true) {
-            val isLeap = (((((jy - 474) % 2820) + 2820) % 2820 + 474) * 682 % 2816) < 682
-            val yearDays = if (isLeap) 366 else 365
-            if (jDays >= yearDays) {
-                jDays -= yearDays
-                jy++
-            } else {
-                break
-            }
-        }
-
-        val jDaysInMonth = intArrayOf(31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29)
-        var jm = 1
-        for (m in 0 until 12) {
-            val days = jDaysInMonth[m]
-            if (jDays >= days) {
-                jDays -= days
-                jm++
-            } else {
-                break
-            }
-        }
-        val jd = jDays + 1
         return intArrayOf(jy, jm, jd)
     }
 
